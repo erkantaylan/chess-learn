@@ -458,11 +458,15 @@ function findSAN(s,san){
   const clean=String(san).replace(/[!?]+/g,"").replace(/[+#]+$/,"").replace(/0/g,"O").trim();
   const moves=legalMoves(s);
   for(const m of moves) if(moveSAN(s,m).replace(/[+#]$/,"")===clean) return m;
-  const la=/^([a-h][1-8])[-x]?([a-h][1-8])(?:=?([qrbnQRBN]))?$/.exec(clean);
-  if(la){ const f=parseSq(la[1]),t=parseSq(la[2]);
+  const la=/^([a-h][1-8])[-x]?([a-h][1-8])(?:=?([qrbnQRBN]))?$/i.exec(clean);
+  if(la){ const f=parseSq(la[1].toLowerCase()),t=parseSq(la[2].toLowerCase());
     for(const m of moves) if(m.from.r===f.r&&m.from.c===f.c&&m.to.r===t.r&&m.to.c===t.c
       &&(!la[3]||String(m.promo||"").toLowerCase()===la[3].toLowerCase())) return m; }
-  return null;
+  // last resort: case-insensitive SAN, accepted only if exactly one move matches,
+  // so "bxc3" (pawn) can never be silently resolved to "Bxc3" (bishop)
+  const lower=clean.toLowerCase();
+  const loose=moves.filter(m=>moveSAN(s,m).replace(/[+#]$/,"").toLowerCase()===lower);
+  return loose.length===1?loose[0]:null;
 }
 function outcome(s){
   const moves=legalMoves(s);
@@ -994,6 +998,7 @@ function handleUCI(line){
     const idx=mpv?+mpv[1]:1;
     sfPV[idx]={depth:+d[1], cp:cp?+cp[1]:null, mate:mate?+mate[1]:null, pv};
     if(idx===1&&sfRunningFEN){
+      evalRev++;
       const prev=evalCache.get(sfRunningFEN);
       if(!prev||prev.depth<=+d[1])
         evalCache.set(sfRunningFEN,{depth:+d[1],cp:cp?+cp[1]:null,mate:mate?+mate[1]:null,
@@ -1206,6 +1211,7 @@ $("saveAsStudy").onclick=()=>saveStudy(true);
 /* ---------------------------- view API (for views/*.js) ---------------------------- */
 const evalCache=new Map();          // fen -> {depth,cp,mate,turn}  (score from side to move)
 let metricsStamp=-1, metricsRun=0;
+let evalRev=0;   // bumped whenever an eval lands
 
 function computeMetrics(){          // memoised per render; stamps _size/_depth/_forks/_named
   const walk=n=>{
@@ -1224,8 +1230,8 @@ function metricsOf(n){ if(metricsStamp!==metricsRun){ computeMetrics(); metricsS
 function evalOf(n){
   const e=evalCache.get(n.fen); if(!e) return null;
   const sign=e.turn==="b"?-1:1;
-  if(e.mate!==null&&e.mate!==undefined) return {mate:e.mate*sign, depth:e.depth};
-  return {cp:(e.cp||0)*sign, depth:e.depth};
+  if(e.mate!==null&&e.mate!==undefined) return {type:"mate", mate:e.mate*sign, depth:e.depth};
+  return {type:"cp", cp:(e.cp||0)*sign, depth:e.depth};
 }
 
 /* a small non-interactive board, for views that show positions */
@@ -1253,7 +1259,8 @@ function miniBoard(fen,px,opts){
     const R=flip?7-q.r:q.r, C=flip?7-q.c:q.c;
     const h=document.createElementNS(SVGNS,"rect");
     h.setAttribute("x",C); h.setAttribute("y",R); h.setAttribute("width",1); h.setAttribute("height",1);
-    h.setAttribute("fill","none"); h.setAttribute("stroke","var(--brass)"); h.setAttribute("stroke-width",.12);
+    if(opts.highlightFill){ h.setAttribute("fill","var(--brass)"); h.setAttribute("opacity",.42); }
+    else { h.setAttribute("fill","none"); h.setAttribute("stroke","var(--brass)"); h.setAttribute("stroke-width",.12); }
     svg.appendChild(h); } }
   wrap.appendChild(svg);
   return wrap;
@@ -1299,6 +1306,10 @@ function updateActiveView(){
 window.RT={
   get root(){return root}, get cur(){return cur}, get flipped(){return flipped},
   allNodes, pathTo, stateOf, moveNumber, metricsOf, evalOf, miniBoard,
+  idOf(node){ return node.id; },                 // stable per session
+  plyOf(node){ let d=0; while(node&&node.parent){d++;node=node.parent} return d; },
+  get revision(){ return metricsRun; },          // bumps on any tree/nav change
+  get evalRevision(){ return evalRev; },         // bumps only when an eval lands
   fromFEN, toFEN, legalMoves, moveSAN, findSAN, applyMove, sqName, parseSq, START,
   goTo(node){ cur=node; sel=null; renderAll(); },
   promote(node){ const p=node.parent; if(!p) return;
