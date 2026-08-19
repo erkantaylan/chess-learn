@@ -505,7 +505,7 @@ function nodePGN(node,forceNum){
 function lineText(node,firstForced){
   const parts=[];
   let n=node, force=firstForced;
-  if(node.parent){ parts.push(nodePGN(node,true)); }
+  if(node.parent){ parts.push(nodePGN(node,true)); force=false; }
   while(n.children.length){
     const main=n.children[0], rest=n.children.slice(1);
     parts.push(nodePGN(main,force));
@@ -1099,7 +1099,7 @@ function serialize(){
   const walk=n=>({san:n.san,fen:n.fen,move:n.move,name:n.name,comment:n.comment,shapes:n.shapes||[],children:n.children.map(walk)});
   return JSON.stringify({v:1,start:root.startFEN||START,tree:walk(root),path:pathTo(cur).map(n=>n.san)});
 }
-function save(){ try{ localStorage.setItem("repertoire-table",serialize()); }catch(e){} }
+function save(){ try{ localStorage.setItem("repertoire-table-v2",serialize()); }catch(e){} }
 function hydrate(d){
   uid=1;
   const build=(o,parent)=>{
@@ -1110,7 +1110,7 @@ function hydrate(d){
   return true;
 }
 function load(){
-  let raw; try{ raw=localStorage.getItem("repertoire-table"); }catch(e){ return false; }
+  let raw; try{ raw=localStorage.getItem("repertoire-table-v2"); }catch(e){ return false; }
   if(!raw) return false;
   try{ return hydrate(JSON.parse(raw)); }catch(e){ return false; }
 }
@@ -1186,19 +1186,20 @@ $("saveStudy").onclick=()=>saveStudy(false);
 $("saveAsStudy").onclick=()=>saveStudy(true);
 
 /* ---------------------------- boot ---------------------------- */
-const SEED="1. e4 e5 2. Bc4 {[%name Bishop's Opening]} Nf6 {[%name Berlin Defence to the Bishop's]} "+
-  "3. d4 {[%name Ponziani Gambit]} d6 (3... exd4 4. Nf3 {[%name Urusov Gambit]}) "+
-  "(3... Nxe4 {[%name The greedy grab]} 4. dxe5 d5) "+
-  "4. dxe5 dxe5 5. Qxd8+ Kxd8 6. Nf3 {[%name Queenless middlegame — the study line]} *";
+const SEED="1. e4 e5 2. Bc4 Nf6 3. d4 exd4 (3... d6 4. dxe5 dxe5 5. Qxd8+ Kxd8 6. Nf3) "+
+  "(3... Nc6) (3... Nxe4 4. dxe5 Nc6 5. Bxf7+ Kxf7 6. Qd5+) 4. Nf3 Nc6 "+
+  "(4... Bb4+ 5. c3 dxc3 6. O-O (6. bxc3 Bc5 7. O-O (7. e5 d5 8. exf6 dxc4 9. Qxd8+ Kxd8 "+
+  "10. fxg7 Re8+ 11. Be3 (11. Kd1 Bd7 12. Bg5+ Kc8 13. Nbd2 Rg8 14. Ne4 Ba3 15. Bh6 Be7 "+
+  "16. Ne5 Be6 17. Bg5 Bxg5 18. Nxg5) 11... Bxe3 12. fxe3 Rg8 13. Ng5) 7... O-O 8. e5 d5 "+
+  "9. exd6 (9. Bb3)) 6... cxb2 7. Bxb2) (4... Nxe4 5. Qxd4) 5. O-O Nxe4 6. Re1 d5 7. Bxd5 "+
+  "Qxd5 8. Nc3 Qa5 9. Nxe4 Be6 10. Neg5 O-O-O 11. Nxe6 fxe6 12. Rxe6 *";
 newStudy(START);
 if(!load()){
   importPGN(SEED,false);
   cur=root;
-  for(const san of ["e4","e5","Bc4","Nf6","d4","d6","dxe5","dxe5","Qxd8+","Kxd8","Nf3"]){
-    const nx=cur.children.find(c=>c.san===san); if(!nx) break; cur=nx;
-  }
+  while(cur.children.length) cur=cur.children[0];   // end of the main line
 }
-$("studyName").value="Bishop's Opening study";
+$("studyName").value="Urusov Gambit";
 renderAll();
 checkAPI();
 try{ if(localStorage.getItem("repertoire-engine")==="1"){ $("engineOn").checked=true; sfOn=true; startEngine(); } }catch(e){}
