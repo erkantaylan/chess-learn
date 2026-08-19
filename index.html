@@ -151,6 +151,15 @@ button.b .kbd{font-family:"IBM Plex Mono",monospace;color:var(--ink-3);font-size
 .phead h2{font-family:Fraunces,Georgia,serif;font-size:14px;margin:0;font-weight:600;letter-spacing:.02em}
 .phead .n{margin-left:auto;font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink-3)}
 
+.tabs{display:flex;gap:2px;padding:6px 8px 0;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.tabs button{background:none;border:1px solid transparent;border-bottom:none;padding:4px 10px;cursor:pointer;
+  font-size:12px;color:var(--ink-3);position:relative;top:1px}
+.tabs button:hover{color:var(--ink)}
+.tabs button.on{color:var(--ink);font-weight:600;border-color:var(--line);background:var(--card);
+  border-bottom:1px solid var(--card)}
+#viewHost{display:none}
+#viewHost.on{display:block}
+#viewHost .viewpane{padding:10px 12px 14px;max-height:min(58vh,560px);overflow:auto}
 #tree{padding:12px 14px 16px;max-height:min(58vh,560px);overflow:auto;
   font-family:"IBM Plex Mono",monospace;font-size:13.5px;line-height:1.95}
 #tree .empty{font-family:"IBM Plex Sans",sans-serif;color:var(--ink-3);font-size:13px;margin:0}
@@ -263,7 +272,9 @@ textarea{min-height:92px}
       </div>
       <div class="panel">
         <div class="phead"><h2>Move tree</h2><span class="n" id="nodeCount"></span></div>
+        <div class="tabs" id="viewTabs"></div>
         <div id="tree"></div>
+        <div id="viewHost"></div>
       </div>
       <div class="panel">
         <div class="phead"><h2>Named lines</h2><span class="n" id="lineCount"></span></div>
@@ -698,7 +709,7 @@ function renderLines(){
   }
 }
 let analyzeT;
-function renderAll(){ renderBoard(); renderTree(); save();
+function renderAll(){ metricsRun++; renderBoard(); renderTree(); updateActiveView(); save();
   clearTimeout(analyzeT); analyzeT=setTimeout(analyze,120); }
 
 /* ---------------------------- shapes (arrows & circles) ---------------------------- */
@@ -966,6 +977,7 @@ function handleUCI(line){
   if(line==="readyok"){ sfUp=true; setEngineState("on"); engineNote(""); analyze(); return; }
   if(line.startsWith("bestmove")){
     sfSearching=false;
+    updateActiveView();
     if(sfPending) launchSearch();
     return;
   }
@@ -981,6 +993,12 @@ function handleUCI(line){
     sfDepth=+d[1]; if(nps) sfNps=+nps[1];
     const idx=mpv?+mpv[1]:1;
     sfPV[idx]={depth:+d[1], cp:cp?+cp[1]:null, mate:mate?+mate[1]:null, pv};
+    if(idx===1&&sfRunningFEN){
+      const prev=evalCache.get(sfRunningFEN);
+      if(!prev||prev.depth<=+d[1])
+        evalCache.set(sfRunningFEN,{depth:+d[1],cp:cp?+cp[1]:null,mate:mate?+mate[1]:null,
+          turn:sfRunningFEN.split(" ")[1]});
+    }
     renderEngine();
   }
 }
@@ -1185,6 +1203,112 @@ async function saveStudy(asNew){
 $("saveStudy").onclick=()=>saveStudy(false);
 $("saveAsStudy").onclick=()=>saveStudy(true);
 
+/* ---------------------------- view API (for views/*.js) ---------------------------- */
+const evalCache=new Map();          // fen -> {depth,cp,mate,turn}  (score from side to move)
+let metricsStamp=-1, metricsRun=0;
+
+function computeMetrics(){          // memoised per render; stamps _size/_depth/_forks/_named
+  const walk=n=>{
+    let size=1,depth=0,forks=n.children.length>1?1:0,named=n.name?1:0;
+    for(const c of n.children){ const m=walk(c);
+      size+=m.size; depth=Math.max(depth,m.depth+1); forks+=m.forks; named+=m.named; }
+    n._size=size-1; n._depth=depth; n._forks=forks; n._named=named;
+    return {size,depth,forks,named};
+  };
+  walk(root);
+}
+function metricsOf(n){ if(metricsStamp!==metricsRun){ computeMetrics(); metricsStamp=metricsRun; }
+  return {size:n._size|0, depth:n._depth|0, forks:n._forks|0, named:n._named|0}; }
+
+/* white-perspective centipawn score for a node, or null */
+function evalOf(n){
+  const e=evalCache.get(n.fen); if(!e) return null;
+  const sign=e.turn==="b"?-1:1;
+  if(e.mate!==null&&e.mate!==undefined) return {mate:e.mate*sign, depth:e.depth};
+  return {cp:(e.cp||0)*sign, depth:e.depth};
+}
+
+/* a small non-interactive board, for views that show positions */
+function miniBoard(fen,px,opts){
+  opts=opts||{};
+  const st=fromFEN(fen), flip=opts.flip!==undefined?opts.flip:flipped;
+  const wrap=document.createElement("div");
+  wrap.className="mini"; wrap.style.width=px+"px"; wrap.style.height=px+"px";
+  const svg=document.createElementNS(SVGNS,"svg");
+  svg.setAttribute("viewBox","0 0 8 8"); svg.setAttribute("width",px); svg.setAttribute("height",px);
+  svg.style.display="block";
+  for(let r=0;r<8;r++)for(let c=0;c<8;c++){
+    const R=flip?7-r:r, C=flip?7-c:c;
+    const sq=document.createElementNS(SVGNS,"rect");
+    sq.setAttribute("x",c); sq.setAttribute("y",r); sq.setAttribute("width",1); sq.setAttribute("height",1);
+    sq.setAttribute("fill",(R+C)%2?"var(--sq-dark)":"var(--sq-light)");
+    svg.appendChild(sq);
+    const p=st.board[R][C];
+    if(p){ const u=document.createElementNS(SVGNS,"use");
+      u.setAttribute("href","#p-"+(isW(p)?"w":"b")+p.toUpperCase());
+      u.setAttribute("x",c); u.setAttribute("y",r); u.setAttribute("width",1); u.setAttribute("height",1);
+      svg.appendChild(u); }
+  }
+  if(opts.highlight){ for(const nm of opts.highlight){ const q=parseSq(nm);
+    const R=flip?7-q.r:q.r, C=flip?7-q.c:q.c;
+    const h=document.createElementNS(SVGNS,"rect");
+    h.setAttribute("x",C); h.setAttribute("y",R); h.setAttribute("width",1); h.setAttribute("height",1);
+    h.setAttribute("fill","none"); h.setAttribute("stroke","var(--brass)"); h.setAttribute("stroke-width",.12);
+    svg.appendChild(h); } }
+  wrap.appendChild(svg);
+  return wrap;
+}
+
+const views=[];                      // {id,label,mount,update,pane}
+let activeView="list";
+function registerView(v){
+  views.push(v);
+  buildTabs();
+  if(v.id===activeView) activateView(v.id);
+}
+function buildTabs(){
+  const bar=$("viewTabs"); bar.textContent="";
+  const all=[{id:"list",label:"List"}].concat(views.map(v=>({id:v.id,label:v.label})));
+  for(const t of all){
+    const b=document.createElement("button");
+    b.textContent=t.label; b.className=t.id===activeView?"on":"";
+    b.onclick=()=>activateView(t.id);
+    bar.appendChild(b);
+  }
+}
+function activateView(id){
+  activeView=id;
+  try{ localStorage.setItem("repertoire-view",id); }catch(e){}
+  const host=$("viewHost");
+  $("tree").style.display=id==="list"?"":"none";
+  host.classList.toggle("on",id!=="list");
+  host.textContent="";
+  buildTabs();
+  const v=views.find(x=>x.id===id);
+  if(v){
+    if(!v.pane){ v.pane=document.createElement("div"); v.pane.className="viewpane"; v.mount(v.pane); }
+    host.appendChild(v.pane);
+    try{ v.update(); }catch(err){ console.error("view "+id+" failed:",err); }
+  }
+}
+function updateActiveView(){
+  const v=views.find(x=>x.id===activeView);
+  if(v&&v.pane) try{ v.update(); }catch(err){ console.error("view "+v.id+" failed:",err); }
+}
+
+window.RT={
+  get root(){return root}, get cur(){return cur}, get flipped(){return flipped},
+  allNodes, pathTo, stateOf, moveNumber, metricsOf, evalOf, miniBoard,
+  fromFEN, toFEN, legalMoves, moveSAN, findSAN, applyMove, sqName, parseSq, START,
+  goTo(node){ cur=node; sel=null; renderAll(); },
+  promote(node){ const p=node.parent; if(!p) return;
+    p.children=[node].concat(p.children.filter(c=>c!==node)); renderAll(); },
+  remove(node){ const p=node.parent; if(!p) return;
+    p.children=p.children.filter(c=>c!==node); if(cur===node) cur=p; renderAll(); },
+  setName(node,name){ node.name=String(name||"").replace(/[{}\]]/g,""); renderAll(); },
+  toast, registerView
+};
+
 /* ---------------------------- boot ---------------------------- */
 const SEED=
   "1. e4 e5 2. Bc4 {[%name Bishop's Opening]} Nf6 {[%name Berlin Defence]} "+
@@ -1217,9 +1341,17 @@ if(!load()){
   while(cur.children.length) cur=cur.children[0];   // end of the main line
 }
 $("studyName").value="Urusov Gambit";
+buildTabs();
+try{ const v=localStorage.getItem("repertoire-view"); if(v) activeView=v; }catch(e){}
 renderAll();
+activateView(activeView);
 checkAPI();
 try{ if(localStorage.getItem("repertoire-engine")==="1"){ $("engineOn").checked=true; sfOn=true; startEngine(); } }catch(e){}
 if(!sfOn&&location.protocol==="file:")
   engineNote('Engine off. Stockfish needs an HTTP origin — run <code>./serve.sh</code>, then flip the switch.');
 </script>
+<script src="views/branchmap.js" defer></script>
+<script src="views/cards.js" defer></script>
+<script src="views/sheet.js" defer></script>
+<script src="views/wheel.js" defer></script>
+<script src="views/ribbon.js" defer></script>
