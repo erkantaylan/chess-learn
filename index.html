@@ -1099,7 +1099,7 @@ function serialize(){
   const walk=n=>({san:n.san,fen:n.fen,move:n.move,name:n.name,comment:n.comment,shapes:n.shapes||[],children:n.children.map(walk)});
   return JSON.stringify({v:1,start:root.startFEN||START,tree:walk(root),path:pathTo(cur).map(n=>n.san)});
 }
-function save(){ try{ localStorage.setItem("repertoire-table-v2",serialize()); }catch(e){} }
+function save(){ try{ localStorage.setItem("repertoire-table-v3",serialize()); }catch(e){} }
 function hydrate(d){
   uid=1;
   const build=(o,parent)=>{
@@ -1110,7 +1110,7 @@ function hydrate(d){
   return true;
 }
 function load(){
-  let raw; try{ raw=localStorage.getItem("repertoire-table-v2"); }catch(e){ return false; }
+  let raw; try{ raw=localStorage.getItem("repertoire-table-v3"); }catch(e){ return false; }
   if(!raw) return false;
   try{ return hydrate(JSON.parse(raw)); }catch(e){ return false; }
 }
@@ -1186,13 +1186,30 @@ $("saveStudy").onclick=()=>saveStudy(false);
 $("saveAsStudy").onclick=()=>saveStudy(true);
 
 /* ---------------------------- boot ---------------------------- */
-const SEED="1. e4 e5 2. Bc4 Nf6 3. d4 exd4 (3... d6 4. dxe5 dxe5 5. Qxd8+ Kxd8 6. Nf3) "+
-  "(3... Nc6) (3... Nxe4 4. dxe5 Nc6 5. Bxf7+ Kxf7 6. Qd5+) 4. Nf3 Nc6 "+
-  "(4... Bb4+ 5. c3 dxc3 6. O-O (6. bxc3 Bc5 7. O-O (7. e5 d5 8. exf6 dxc4 9. Qxd8+ Kxd8 "+
-  "10. fxg7 Re8+ 11. Be3 (11. Kd1 Bd7 12. Bg5+ Kc8 13. Nbd2 Rg8 14. Ne4 Ba3 15. Bh6 Be7 "+
-  "16. Ne5 Be6 17. Bg5 Bxg5 18. Nxg5) 11... Bxe3 12. fxe3 Rg8 13. Ng5) 7... O-O 8. e5 d5 "+
-  "9. exd6 (9. Bb3)) 6... cxb2 7. Bxb2) (4... Nxe4 5. Qxd4) 5. O-O Nxe4 6. Re1 d5 7. Bxd5 "+
-  "Qxd5 8. Nc3 Qa5 9. Nxe4 Be6 10. Neg5 O-O-O 11. Nxe6 fxe6 12. Rxe6 *";
+const SEED=
+  "1. e4 e5 2. Bc4 {[%name Bishop's Opening]} Nf6 {[%name Berlin Defence]} "+
+  "3. d4 {[%name Ponziani Gambit]} exd4 "+
+  "(3... d6 {[%name Declining the Fun]} 4. dxe5 dxe5 5. Qxd8+ Kxd8 {[%name King Takes the Stairs]} "+
+    "6. Nf3 {[%name The Queenless Snooze]}) "+
+  "(3... Nc6 {[%name The Polite Decline]}) "+
+  "(3... Nxe4 {[%name Greed Is Good, For About Five Moves]} 4. dxe5 Nc6 "+
+    "5. Bxf7+ {[%name Bishop Sends the Bill]} Kxf7 6. Qd5+ {[%name Fork, Knife and Regret]}) "+
+  "4. Nf3 {[%name Urusov Gambit]} Nc6 "+
+  "(4... Bb4+ {[%name Check First, Think Later]} 5. c3 dxc3 "+
+    "6. O-O {[%name Two Pawns and a Dream]} "+
+    "(6. bxc3 {[%name The Accountant's Line]} Bc5 7. O-O "+
+      "(7. e5 {[%name Push and Pray]} d5 8. exf6 dxc4 9. Qxd8+ Kxd8 "+
+        "10. fxg7 {[%name The Pawn That Went Shopping]} Re8+ "+
+        "11. Be3 {[%name Blocking With Style]} "+
+        "(11. Kd1 {[%name Manual Castling Enthusiast]} Bd7 12. Bg5+ Kc8 13. Nbd2 Rg8 14. Ne4 Ba3 "+
+          "15. Bh6 Be7 16. Ne5 Be6 17. Bg5 Bxg5 18. Nxg5 {[%name Everybody Trades Everything]}) "+
+        "11... Bxe3 12. fxe3 Rg8 13. Ng5 {[%name Babysitting the g7 Pawn]}) "+
+      "7... O-O 8. e5 d5 9. exd6 {[%name Snack Time]} "+
+      "(9. Bb3 {[%name Bishop Steps Back to Think]})) "+
+    "6... cxb2 7. Bxb2 {[%name Two Bishops, No Pawns, All Vibes]}) "+
+  "(4... Nxe4 5. Qxd4 {[%name Queen Comes Out to Play]}) "+
+  "5. O-O Nxe4 6. Re1 d5 7. Bxd5 Qxd5 8. Nc3 {[%name The Trap Springs]} Qa5 9. Nxe4 Be6 "+
+  "10. Neg5 O-O-O 11. Nxe6 fxe6 12. Rxe6 {[%name Rook Collects the Rent]} *";
 newStudy(START);
 if(!load()){
   importPGN(SEED,false);
