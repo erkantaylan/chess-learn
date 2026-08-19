@@ -1207,3 +1207,18 @@ try{ if(localStorage.getItem("repertoire-engine")==="1"){ $("engineOn").checked=
 if(!sfOn&&location.protocol==="file:")
   engineNote('Engine off. Stockfish needs an HTTP origin — run <code>./serve.sh</code>, then flip the switch.');
 </script>
+
+<script>
+function rep(m){ fetch("/api/health?probe="+encodeURIComponent(m)).catch(()=>{}); }
+window.onerror=(m,s,l)=>rep("PAGE_ERROR "+m+" @"+l);
+setTimeout(async ()=>{
+  document.getElementById("studyName").value="Count Check";
+  await saveStudy(true);
+  const before=exportPGN();
+  newStudy(START); renderAll();
+  await openStudy(studyId);
+  const rows=await api("/studies");
+  rep("moveCount="+rows[0].move_count+" name="+rows[0].name+" pgnMatch="+(exportPGN()===before)
+     +" shapesOK="+(typeof cur.shapes!=="undefined"));
+}, 1500);
+</script>
