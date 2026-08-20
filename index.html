@@ -18,6 +18,7 @@
   --piece-w:#FFFDF7; --piece-b:#221D16; --piece-edge:#0E0B07;
   --shadow:0 1px 0 rgba(28,24,19,.06), 0 12px 30px -18px rgba(28,24,19,.5);
   --on-brass:#FFFDF7;
+  --treeH:min(74vh,720px);   /* move-tree height; drag the pane corner to change */
 }
 @media (prefers-color-scheme:dark){ :root:not([data-theme="light"]){
   --parchment:#15130F; --parchment-2:#1F1B15; --card:#211D17;
@@ -159,8 +160,10 @@ button.b .kbd{font-family:"IBM Plex Mono",monospace;color:var(--ink-3);font-size
   border-bottom:1px solid var(--card)}
 #viewHost{display:none}
 #viewHost.on{display:block}
-#viewHost .viewpane{padding:10px 12px 14px;max-height:min(58vh,560px);overflow:auto}
-#tree{padding:12px 14px 16px;max-height:min(58vh,560px);overflow:auto;
+#viewHost .viewpane{padding:10px 12px 14px;height:var(--treeH);max-height:none;overflow:auto;
+  resize:vertical;min-height:180px}
+#tree{padding:12px 14px 16px;height:var(--treeH);max-height:none;overflow:auto;
+  resize:vertical;min-height:180px;
   font-family:"IBM Plex Mono",monospace;font-size:13.5px;line-height:1.95}
 #tree .empty{font-family:"IBM Plex Sans",sans-serif;color:var(--ink-3);font-size:13px;margin:0}
 .mv{cursor:pointer;padding:1px 4px;white-space:nowrap;border-bottom:1.5px solid transparent}
@@ -1266,6 +1269,25 @@ function miniBoard(fen,px,opts){
   return wrap;
 }
 
+/* the tree pane is drag-resizable; remember the height and share it across tabs */
+function paneEls(){ return [$("tree")].concat(views.map(v=>v.pane).filter(Boolean)); }
+function applyTreeHeight(px){
+  document.documentElement.style.setProperty("--treeH",px?px+"px":"min(74vh,720px)");
+  for(const el of paneEls()) el.style.height="";   // let the shared var win again
+}
+let sizeT;
+function watchPaneSize(el){
+  if(!el||el._sized) return; el._sized=true;
+  new ResizeObserver(()=>{
+    if(!el.style.height) return;                    // not a user drag
+    const px=Math.round(el.getBoundingClientRect().height);
+    if(px<120) return;
+    clearTimeout(sizeT);
+    sizeT=setTimeout(()=>{ try{ localStorage.setItem("repertoire-treeH",px); }catch(e){}
+      applyTreeHeight(px); },250);
+  }).observe(el);
+}
+
 const views=[];                      // {id,label,mount,update,pane}
 let activeView="list";
 function registerView(v){
@@ -1294,7 +1316,7 @@ function activateView(id){
   const v=views.find(x=>x.id===id);
   if(v){
     if(!v.pane){ v.pane=document.createElement("div"); v.pane.className="viewpane"; v.mount(v.pane); }
-    host.appendChild(v.pane);
+    host.appendChild(v.pane); watchPaneSize(v.pane);
     try{ v.update(); }catch(err){ console.error("view "+id+" failed:",err); }
   }
 }
@@ -1353,6 +1375,9 @@ if(!load()){
 }
 $("studyName").value="Urusov Gambit";
 buildTabs();
+watchPaneSize($("tree"));
+try{ const h=parseInt(localStorage.getItem("repertoire-treeH"),10);
+  if(h>120) document.documentElement.style.setProperty("--treeH",h+"px"); }catch(e){}
 try{ const v=localStorage.getItem("repertoire-view"); if(v) activeView=v; }catch(e){}
 renderAll();
 activateView(activeView);

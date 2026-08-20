@@ -8,7 +8,7 @@
   /* ---------------------------------------------------------------- style */
   const CSS = `
 .bmap{position:relative;font-family:"IBM Plex Mono",ui-monospace,monospace}
-.bmap .bm-scroll{overflow:auto;max-height:min(52vh,520px);
+.bmap .bm-scroll{overflow:auto;max-height:none;height:calc(var(--treeH) - 92px);min-height:150px;
   background:var(--parchment);border:1px solid var(--line);border-radius:3px}
 .bmap .bm-legend{display:flex;gap:12px;align-items:center;flex-wrap:wrap;
   font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;
@@ -58,6 +58,17 @@
       leg.innerHTML='<span><b>&#9679;</b> fork</span><span><b>&#8213;</b> thickness = branch size</span>'+
                     '<span><b>&#8594;</b> right = deeper</span><span><b>&#9642;</b> note/arrow</span>';
       const sc=document.createElement("div");
+      sc.addEventListener("wheel",e=>{
+      // this view is a wide horizontal graph: wheel pans sideways, shift+wheel scrolls down
+      const horiz=sc.scrollWidth>sc.clientWidth+1, vert=sc.scrollHeight>sc.clientHeight+1;
+      if(e.ctrlKey) return;                       // leave browser zoom alone
+      if(e.shiftKey){ if(vert){ sc.scrollTop+=e.deltaY; e.preventDefault(); } return; }
+      if(!horiz) return;
+      const d=Math.abs(e.deltaX)>Math.abs(e.deltaY)?e.deltaX:e.deltaY;
+      const before=sc.scrollLeft;
+      sc.scrollLeft+=d;
+      if(sc.scrollLeft!==before) e.preventDefault();   // let the page scroll at either end
+    },{passive:false});
       sc.className="bm-scroll";
       pane.appendChild(leg); pane.appendChild(sc);
       this.scroll=sc; this.sig=null;
