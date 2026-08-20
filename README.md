@@ -3,9 +3,27 @@
 A chess opening study board: branching move tree, your own names for every variation,
 arrows/circles, FEN + PGN in and out, and Stockfish analysis.
 
+![The board, the move tree and Stockfish](docs/screenshots/board.png)
+
+Green arrows are the moves *you* have prepared from this position, shaded green to
+red by how much they lose against Stockfish's best. Blue arrows are Stockfish's own
+suggestions. Each has its own switch, and neither is tied to the suggestion list.
+
 - `index.html` — the whole app (vanilla JS, no build step). Own chess engine, perft-verified.
 - `engine/` — Stockfish 18 lite single-thread (WASM), GPLv3, see `engine/LICENSE-stockfish.txt`.
 - Piece art: cburnett (from lichess), inlined as an SVG sprite.
+- `src/` — the backend: ASP.NET Core + PostgreSQL, run under Aspire.
+
+### Six ways to read the same tree
+
+A move list is a bad shape for a repertoire, so the tree pane has six views of it.
+Here is **Map** — forks branch rightward, thickness is how much theory hangs off a
+branch, and your own names for the lines ride along:
+
+![The Map view of the move tree](docs/screenshots/map.png)
+
+The rest are Eval, List, Cards, Sheet and Wheel, in `views/`. They are plug-ins
+against a small documented API — see `views/README.md` to add a seventh.
 
 ## Running
 
@@ -25,6 +43,8 @@ lines, run the engine — but **nothing is written down**: every change lives in
 memory and is gone on refresh. Cosmetic preferences (chosen view, panel sizes,
 the engine toggle, the cached evaluations) are not study content and stay local
 either way.
+
+![The sign-in page](docs/screenshots/login.png)
 
 Credentials come from configuration, never the repo:
 
@@ -53,6 +73,12 @@ with traces, structured logs and metrics over OTLP:
 
     cd src/Aspire/Repertoire.AppHost
     aspire run
+
+![The Aspire dashboard, showing traces](docs/screenshots/aspire.png)
+
+Every request is traced end to end, database spans included — the `cs-repertoire`
+spans above are Postgres inside the API's own span. Logs and metrics land in the
+same dashboard over OTLP.
 
 Ports are all dynamic — take the entry points from the dashboard it prints. The
 Postgres container is `ContainerLifetime.Persistent`, so your studies survive an
