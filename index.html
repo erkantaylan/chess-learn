@@ -346,6 +346,7 @@ textarea{min-height:92px}
             <input class="t" id="studyName" style="flex:1;min-width:150px" placeholder="Study name" spellcheck="false">
             <button class="b primary" id="saveStudy">Save</button>
             <button class="b" id="saveAsStudy">Save as new</button>
+            <button class="b" id="copyLink" title="Copy a link to this study and position">Copy link</button>
           </div>
           <div id="studyList"></div>
           <p class="hint-txt" id="libNote"></p>
@@ -887,7 +888,8 @@ function renderLines(){
 let analyzeT;
 function renderAll(){ metricsRun++; previewNode=null; renderBoard(); renderTree(); updateActiveView(); save();
   clearTimeout(analyzeT); analyzeT=setTimeout(analyze,120);
-  clearTimeout(bgT); bgT=setTimeout(bgRefill,220); }
+  clearTimeout(bgT); bgT=setTimeout(bgRefill,220);
+  clearTimeout(hashT); hashT=setTimeout(syncHash,150); }
 let bgT;
 
 /* ---------------------------- shapes (arrows & circles) ---------------------------- */
@@ -1413,6 +1415,52 @@ function load(){
   try{ return hydrate(JSON.parse(raw)); }catch(e){ return false; }
 }
 
+/* ---------------------------- shareable URLs ---------------------------- */
+/* #s=<study id>&p=<san>/<san>/...  — the study and the exact position in it */
+let hashLock=false, hashT;
+function currentHash(){
+  const parts=[];
+  if(studyId) parts.push("s="+studyId);
+  const p=pathTo(cur).map(n=>encodeURIComponent(n.san)).join("/");
+  if(p) parts.push("p="+p);
+  return parts.length?"#"+parts.join("&"):"";
+}
+function syncHash(){
+  const h=currentHash();
+  if(h===location.hash||(!h&&!location.hash)) return;
+  hashLock=true;
+  try{ history.replaceState(null,"",h||location.pathname+location.search); }catch(e){}
+  setTimeout(()=>{hashLock=false;},0);
+}
+function parseHash(){
+  const raw=location.hash.replace(/^#/,"");
+  if(!raw) return null;
+  const out={};
+  for(const kv of raw.split("&")){ const i=kv.indexOf("="); if(i>0) out[kv.slice(0,i)]=kv.slice(i+1); }
+  return Object.keys(out).length?out:null;
+}
+function walkTo(pathStr){
+  let n=root, missed=0;
+  for(const raw of String(pathStr).split("/")){
+    if(!raw) continue;
+    const san=decodeURIComponent(raw);
+    const nx=n.children.find(c=>c.san===san);
+    if(!nx){ missed++; break; }
+    n=nx;
+  }
+  cur=n; sel=null; renderAll();
+  return missed===0;
+}
+async function applyHash(){
+  const q=parseHash(); if(!q) return;
+  if(q.s&&+q.s!==studyId){
+    if(!apiUp){ toast("That link points at a saved study — start the server to open it"); }
+    else if(!await openStudy(+q.s,true)) return;
+  }
+  if(q.p&&!walkTo(q.p)) toast("Link points at a move that is not in this study");
+}
+window.addEventListener("hashchange",()=>{ if(!hashLock) applyHash(); });
+
 /* ---------------------------- library (server-backed) ---------------------------- */
 let apiUp=false, studyId=null;
 const api=(path,opts)=>fetch("/api"+path,Object.assign({headers:{"Content-Type":"application/json"}},opts))
@@ -1458,15 +1506,16 @@ async function refreshStudies(){
     list.appendChild(row);
   }
 }
-async function openStudy(id){
+async function openStudy(id,fromLink){
   try{
     const rec=await api("/studies/"+id);
     if(!hydrate({tree:rec.tree,start:rec.start_fen,path:rec.tree.path||[]}))
       throw new Error("stored tree is unreadable");
     studyId=rec.id; $("studyName").value=rec.name;
     sel=null; renderAll(); refreshStudies();
-    toast("Opened “"+rec.name+"”");
-  }catch(e){ toast("Could not open: "+e.message); }
+    if(!fromLink) toast("Opened “"+rec.name+"”");
+    return true;
+  }catch(e){ toast("Could not open: "+e.message); return false; }
 }
 async function saveStudy(asNew){
   if(!apiUp){ toast("No server — run ./serve.sh to save to the library"); return; }
@@ -1477,9 +1526,15 @@ async function saveStudy(asNew){
       : await api("/studies",{method:"POST",body:JSON.stringify(body)});
     studyId=rec.id; $("studyName").value=rec.name;
     toast(asNew||!studyId?"Saved as “"+rec.name+"”":"Saved");
-    refreshStudies();
+    refreshStudies(); syncHash();
   }catch(e){ toast("Save failed: "+e.message); }
 }
+$("copyLink").onclick=()=>{
+  syncHash();
+  const url=location.origin+location.pathname+location.search+currentHash();
+  if(!studyId&&apiUp) toast("Save the study first so the link can find it");
+  copy(url,"Link copied");
+};
 $("saveStudy").onclick=()=>saveStudy(false);
 $("saveAsStudy").onclick=()=>saveStudy(true);
 
@@ -1800,7 +1855,7 @@ try{ if(localStorage.getItem("repertoire-autoeval")==="0"){ bgOn=false; $("autoE
 const restored=loadEvals();
 renderAll();
 activateView(activeView);
-checkAPI();
+checkAPI().then(applyHash);
 if(restored) toast(restored+" saved evaluations restored");
 setTimeout(bgRefill,600);
 try{ if(localStorage.getItem("repertoire-engine")==="1"){ $("engineOn").checked=true; sfOn=true; startEngine(); } }catch(e){}
