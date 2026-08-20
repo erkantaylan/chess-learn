@@ -10,8 +10,8 @@ Two backends implement this contract:
 
 | | base URL | store | accounts |
 |---|---|---|---|
-| .NET (`dotnet/`) | Aspire assigns the port; `http://localhost:5080` under compose | PostgreSQL, `tree` in a `jsonb` column | yes — the whole API needs a session |
-| Python (`server/`, being retired) | `http://localhost:8000` | SQLite, `tree` in a TEXT column | none — wide open |
+| .NET (`src/`) | Aspire assigns the port; `http://localhost:5080` under compose | PostgreSQL, `tree` in a `jsonb` column | yes — the whole API needs a session |
+| Python (`legacy/python/`, retired) | `http://localhost:8000` | SQLite, `tree` in a TEXT column | none — wide open |
 
 Timestamps are ISO-8601 UTC with a `Z` suffix, e.g. `2026-08-19T16:59:53Z`.
 
@@ -221,5 +221,5 @@ The intended flow, replacing (or backing up) the single `localStorage`
 5. **Delete.** `DELETE /api/studies/{id}`, then refresh the list.
 
 6. **Offline / static-only fallback.** If `GET /api/health` fails, the app is
-   being served without the backend (`serve.sh` fallback mode, or `file://`).
+   being served without a backend (the retired static-only fallback, or `file://`).
    Keep using `localStorage` and hide the server-study UI.

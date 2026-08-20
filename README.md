@@ -9,10 +9,10 @@ arrows/circles, FEN + PGN in and out, and Stockfish analysis.
 
 ## Running
 
-Stockfish needs a Web Worker, which browsers refuse to load from `file://`.
-Serve the folder over HTTP:
+Stockfish needs a Web Worker, which browsers refuse to load from `file://`, so
+the app has to come off an HTTP origin:
 
-    ./serve.sh          # http://localhost:8000
+    cd src/Aspire/Repertoire.AppHost && aspire run
 
 Opening `index.html` directly still works — everything except the engine.
 
@@ -30,7 +30,7 @@ Credentials come from configuration, never the repo:
 
     Auth__Username=erkan Auth__Password=... aspire run
 
-Locally `dotnet/src/Api/Repertoire.Api/appsettings.Development.json` carries a
+Locally `src/Api/Repertoire.Api/appsettings.Development.json` carries a
 throwaway pair so the thing runs out of the box. Anywhere else the app refuses
 to boot without them.
 
@@ -38,10 +38,10 @@ to boot without them.
 
 Two backends implement the same JSON API (`docs/API.md`):
 
-- **`dotnet/` — ASP.NET Core + PostgreSQL. The one being built.** Serves the app
+- **`src/` — ASP.NET Core + PostgreSQL. The one being built.** Serves the app
   and the API on one port, with the move tree in a `jsonb` column and cookie
   auth for the single account.
-- **`server/` — FastAPI + SQLite. Being retired.** No accounts: its `/api` is
+- **`legacy/python/` — FastAPI + SQLite. Retired.** No accounts: its `/api` is
   wide open, and the frontend now treats a server that cannot authenticate
   anyone as a server it cannot save to. The app still runs there, in memory.
 
@@ -51,7 +51,7 @@ Local development runs under [Aspire](https://aka.ms/dotnet/aspire), which
 supervises the API and a PostgreSQL container together and gives you a dashboard
 with traces, structured logs and metrics over OTLP:
 
-    cd dotnet/src/Aspire/Repertoire.AppHost
+    cd src/Aspire/Repertoire.AppHost
     aspire run
 
 Ports are all dynamic — take the entry points from the dashboard it prints. The
@@ -61,11 +61,11 @@ comment there explains why removing it silently eats the database.)
 
 Or without Aspire:
 
-    docker compose -f dotnet/docker-compose.yml up --build     # http://localhost:5080
+    docker compose up --build                                  # http://localhost:5080
 
 EF migrations apply on startup, so a fresh Postgres comes up ready. `dotnet-ef`
-is pinned in `dotnet/.config/dotnet-tools.json` — `dotnet tool restore` once,
-then `dotnet ef migrations add <Name>` from `dotnet/src/Api/Repertoire.Api`.
+is pinned in `.config/dotnet-tools.json` — `dotnet tool restore` once, then
+`dotnet ef migrations add <Name>` from `src/Api/Repertoire.Api`.
 
 Both servers set `Cross-Origin-Opener-Policy: same-origin` and
 `Cross-Origin-Embedder-Policy: require-corp` (so `SharedArrayBuffer` is
@@ -73,13 +73,13 @@ available for a future multi-threaded Stockfish), serve `.wasm` as
 `application/wasm`, and disable caching so an edited `index.html` is never
 stale.
 
-### The Python stack (retiring)
+### The Python stack (retired)
 
     python3 -m venv .venv
-    .venv/bin/pip install -r server/requirements.txt
-    ./serve.sh                      # http://localhost:8000, opens a browser
+    .venv/bin/pip install -r legacy/python/server/requirements.txt
+    legacy/python/serve.sh          # http://localhost:8000, opens a browser
 
-`serve.sh` uses `.venv` if it exists, otherwise whatever `python3` is on PATH.
+`legacy/python/serve.sh` uses `.venv` if it exists, otherwise whatever `python3` is on PATH.
 If `fastapi`/`uvicorn` are missing it falls back to a static-only server — the
 app works, the engine works, but the `/api` endpoints do not — and says so
 loudly. `PORT` and `DB_PATH` are honoured; the DB defaults to

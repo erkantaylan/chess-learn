@@ -21,9 +21,8 @@ services:
     expose:
       - 8080
     build:
-      # Repo root: the image copies index.html, login.html, views/ and engine/ too.
-      context: ..
-      dockerfile: dotnet/src/Api/Repertoire.Api/Dockerfile
+      context: .
+      dockerfile: src/Api/Repertoire.Api/Dockerfile
     depends_on:
       db-repertoire:
         condition: service_healthy

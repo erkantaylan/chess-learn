@@ -1,23 +1,55 @@
+# The .NET stack, for running the whole thing locally in containers. The retired Python stack
+# has its own compose under legacy/python/ and still binds port 8000, so these do not collide.
+#
+#   docker compose up --build                                   # http://localhost:5080
+#
+# For local development prefer Aspire, which supervises the same thing with a dashboard:
+#   cd src/Aspire/Repertoire.AppHost && aspire run
+name: repertoire
+
 services:
-  app:
-    build: .
-    image: repertoire-table:latest
-    container_name: repertoire-table
+
+  api:
+    image: repertoire.api
+    build:
+      context: .
+      dockerfile: src/Api/Repertoire.Api/Dockerfile
     ports:
-      - "8000:8000"
+      - '5080:8080'
+    depends_on:
+      db-repertoire:
+        condition: service_healthy
     environment:
-      PORT: "8000"
-      DB_PATH: /app/data/repertoire.sqlite3
-    volumes:
-      # Named volume: the SQLite DB survives `docker compose down`.
-      - repertoire-data:/app/data
-    restart: unless-stopped
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ConnectionStrings__cs-repertoire=Host=db-repertoire;Username=postgres;Password=repertoire-local-dev;Database=repertoire;
+      # --- The one account. Override both in whatever injects your production env; the app
+      #     refuses to boot outside Development if either is missing.
+      - Auth__Username=erkan
+      - Auth__Password=change-me
+    # TCP probe on Kestrel: the aspnet images ship bash but neither curl nor wget. Mercury's trick.
+    # start_period covers the EF migration on first boot.
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3).status==200 else 1)"]
+      test: [ 'CMD-SHELL', "bash -c 'echo > /dev/tcp/localhost/8080'" ]
       interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+
+  db-repertoire:
+    image: postgres:17.6
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=repertoire-local-dev
+      - POSTGRES_DB=repertoire
+    volumes:
+      - volume_repertoire:/var/lib/postgresql/data
+    healthcheck:
+      test: [ 'CMD-SHELL', 'pg_isready -h localhost -U $$POSTGRES_USER -d $$POSTGRES_DB' ]
+      interval: 5s
       timeout: 5s
-      retries: 3
-      start_period: 10s
+      retries: 10
 
 volumes:
-  repertoire-data:
+  volume_repertoire:
