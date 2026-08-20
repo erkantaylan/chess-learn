@@ -347,8 +347,10 @@ textarea{min-height:92px}
             <button class="b primary" id="saveStudy">Save</button>
             <button class="b" id="saveAsStudy">Save as new</button>
             <button class="b" id="copyLink" title="Copy a link to this study and position">Copy link</button>
+            <button class="b" id="setLanding" title="Open this study at the current position from now on">Set landing here</button>
           </div>
           <div id="studyList"></div>
+          <p class="hint-txt" id="landingNote"></p>
           <p class="hint-txt" id="libNote"></p>
         </div>
       </div>
@@ -889,7 +891,8 @@ let analyzeT;
 function renderAll(){ metricsRun++; previewNode=null; renderBoard(); renderTree(); updateActiveView(); save();
   clearTimeout(analyzeT); analyzeT=setTimeout(analyze,120);
   clearTimeout(bgT); bgT=setTimeout(bgRefill,220);
-  clearTimeout(hashT); hashT=setTimeout(syncHash,150); }
+  clearTimeout(hashT); hashT=setTimeout(syncHash,150);
+  clearTimeout(resumeT); resumeT=setTimeout(saveResume,400); }
 let bgT;
 
 /* ---------------------------- shapes (arrows & circles) ---------------------------- */
@@ -1397,7 +1400,8 @@ $("engineOn").addEventListener("change",e=>{
 /* ---------------------------- persistence ---------------------------- */
 function serialize(){
   const walk=n=>({san:n.san,fen:n.fen,move:n.move,name:n.name,comment:n.comment,shapes:n.shapes||[],children:n.children.map(walk)});
-  return JSON.stringify({v:1,start:root.startFEN||START,tree:walk(root),path:pathTo(cur).map(n=>n.san)});
+  return JSON.stringify({v:1,start:root.startFEN||START,landing:root.landing||[],
+    tree:walk(root),path:pathTo(cur).map(n=>n.san)});
 }
 function save(){ try{ localStorage.setItem("repertoire-table-v3",serialize()); }catch(e){} }
 function hydrate(d){
@@ -1405,7 +1409,9 @@ function hydrate(d){
   const build=(o,parent)=>{
     const n=newNode({san:o.san,fen:o.fen,move:o.move||null,name:o.name||"",comment:o.comment||"",shapes:o.shapes||[],parent});
     n.children=(o.children||[]).map(c=>build(c,n)); return n; };
-  root=build(d.tree,null); root.startFEN=d.start||START; cur=root;
+  root=build(d.tree,null); root.startFEN=d.start||START;
+  root.landing=Array.isArray(d.landing)?d.landing:(Array.isArray(d.tree&&d.tree.landing)?d.tree.landing:[]);
+  cur=root;
   for(const san of (d.path||[])){ const nx=cur.children.find(c=>c.san===san); if(!nx) break; cur=nx; }
   return true;
 }
@@ -1441,9 +1447,10 @@ function parseHash(){
 }
 function walkTo(pathStr){
   let n=root, missed=0;
-  for(const raw of String(pathStr).split("/")){
+  const steps=Array.isArray(pathStr)?pathStr:String(pathStr).split("/");
+  for(const raw of steps){
     if(!raw) continue;
-    const san=decodeURIComponent(raw);
+    const san=Array.isArray(pathStr)?raw:decodeURIComponent(raw);
     const nx=n.children.find(c=>c.san===san);
     if(!nx){ missed++; break; }
     n=nx;
@@ -1461,6 +1468,46 @@ async function applyHash(){
 }
 window.addEventListener("hashchange",()=>{ if(!hashLock) applyHash(); });
 
+/* ------- landing position (saved with the study) and resume (this browser) ------- */
+const resumeKey=id=>"repertoire-resume-"+(id||"local");
+let resumeT;
+function saveResume(){
+  try{ localStorage.setItem(resumeKey(studyId),
+    JSON.stringify(pathTo(cur).map(n=>n.san))); }catch(e){}
+}
+function loadResume(){
+  try{ const raw=localStorage.getItem(resumeKey(studyId));
+    const p=raw?JSON.parse(raw):null;
+    return Array.isArray(p)&&p.length?p:null; }catch(e){ return null; }
+}
+/* where to land: where you left off in this browser, else the study's own anchor */
+function goToStart(){
+  const p=loadResume()||(root.landing&&root.landing.length?root.landing:null);
+  if(p) walkTo(p); else { cur=root; sel=null; renderAll(); }
+}
+function landingText(){
+  if(!root.landing||!root.landing.length) return "";
+  let n=root, out=[];
+  for(const san of root.landing){
+    const nx=n.children.find(c=>c.san===san); if(!nx) break;
+    const mn=moveNumber(nx); out.push((mn.white?mn.no+".":"")+nx.san); n=nx;
+  }
+  return out.join(" ");
+}
+function renderLanding(){
+  const el=$("landingNote"); if(!el) return;
+  const t=landingText();
+  el.textContent="";
+  if(!t){ el.append("No landing position — opens at the start unless you have been here before."); return; }
+  const b=document.createElement("b"); b.textContent=t;
+  el.append("Lands on ",b," ");
+  const clr=document.createElement("button");
+  clr.className="b"; clr.style.padding="0 6px"; clr.style.fontSize="11px"; clr.textContent="clear";
+  clr.onclick=()=>{ root.landing=[]; renderLanding(); save();
+    if(studyId&&apiUp) saveStudy(false); else toast("Landing cleared"); };
+  el.append(clr);
+}
+
 /* ---------------------------- library (server-backed) ---------------------------- */
 let apiUp=false, studyId=null;
 const api=(path,opts)=>fetch("/api"+path,Object.assign({headers:{"Content-Type":"application/json"}},opts))
@@ -1472,6 +1519,7 @@ const api=(path,opts)=>fetch("/api"+path,Object.assign({headers:{"Content-Type":
 function studyPayload(){
   const doc=JSON.parse(serialize());
   doc.tree.path=doc.path;              // the server counts `children` from the root it is given
+  doc.tree.landing=root.landing||[];   // rides along with the tree, no schema change needed
   return {name:($("studyName").value.trim()||"Untitled study"),
     start_fen:doc.start, tree:doc.tree, pgn:exportPGN()};
 }
@@ -1509,10 +1557,13 @@ async function refreshStudies(){
 async function openStudy(id,fromLink){
   try{
     const rec=await api("/studies/"+id);
-    if(!hydrate({tree:rec.tree,start:rec.start_fen,path:rec.tree.path||[]}))
+    if(!hydrate({tree:rec.tree,start:rec.start_fen,path:rec.tree.path||[],
+                 landing:rec.tree.landing||[]}))
       throw new Error("stored tree is unreadable");
     studyId=rec.id; $("studyName").value=rec.name;
-    sel=null; renderAll(); refreshStudies();
+    sel=null;
+    if(!(fromLink&&(parseHash()||{}).p)) goToStart(); else renderAll();
+    refreshStudies(); renderLanding();
     if(!fromLink) toast("Opened “"+rec.name+"”");
     return true;
   }catch(e){ toast("Could not open: "+e.message); return false; }
@@ -1529,6 +1580,12 @@ async function saveStudy(asNew){
     refreshStudies(); syncHash();
   }catch(e){ toast("Save failed: "+e.message); }
 }
+$("setLanding").onclick=()=>{
+  root.landing=pathTo(cur).map(n=>n.san);
+  renderLanding(); save();
+  if(studyId&&apiUp){ saveStudy(false); toast("Landing position saved with the study"); }
+  else toast(apiUp?"Landing set — press Save to store it with the study":"Landing set for this browser");
+};
 $("copyLink").onclick=()=>{
   syncHash();
   const url=location.origin+location.pathname+location.search+currentHash();
@@ -1853,7 +1910,8 @@ try{ const v=localStorage.getItem("repertoire-view"); if(v) activeView=v; }catch
 try{ if(localStorage.getItem("repertoire-treearrows")==="0"){ treeArrowsOn=false; $("treeArrows").checked=false; } }catch(e){}
 try{ if(localStorage.getItem("repertoire-autoeval")==="0"){ bgOn=false; $("autoEval").checked=false; } }catch(e){}
 const restored=loadEvals();
-renderAll();
+if(!parseHash()) goToStart(); else renderAll();
+renderLanding();
 activateView(activeView);
 checkAPI().then(applyHash);
 if(restored) toast(restored+" saved evaluations restored");
