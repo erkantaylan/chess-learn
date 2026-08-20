@@ -286,19 +286,33 @@
       }
       zoomAt(e.clientX,e.deltaY>0?1/1.18:1.18);
     },{passive:false});
-    let dragX=null,dragPan=0;
+    /* pan only once the pointer really moves, so a click still selects a move */
+    let dragX=null,dragPan=0,dragging=false,pid=null;
+    const DRAG_SLOP=4;                       // px before it counts as a drag
     ui.wrap.addEventListener("pointerdown",e=>{
       if(e.target.closest(".erb-tip")) return;
-      dragX=e.clientX; dragPan=panPly; ui.wrap.classList.add("dragging");
-      ui.wrap.setPointerCapture(e.pointerId);
+      if(e.button!==0) return;
+      dragX=e.clientX; dragPan=panPly; dragging=false; pid=e.pointerId;
     });
     ui.wrap.addEventListener("pointermove",e=>{
       if(dragX===null) return;
+      if(!dragging){
+        if(Math.abs(e.clientX-dragX)<DRAG_SLOP) return;
+        dragging=true; ui.wrap.classList.add("dragging");
+        try{ ui.wrap.setPointerCapture(pid); }catch(err){}
+      }
       const inner=Math.max(1,view.W-view.mL-view.mR);
       panPly=dragPan-((e.clientX-dragX)/inner)*view.span;
       render();
     });
-    const end=()=>{ dragX=null; ui.wrap.classList.remove("dragging"); };
+    const end=()=>{
+      if(dragging){                          // swallow the click that follows a real drag
+        ui.wrap.addEventListener("click",ev=>{ev.stopPropagation();ev.preventDefault();},
+          {capture:true,once:true});
+        setTimeout(()=>{},0);
+      }
+      dragX=null; dragging=false; pid=null; ui.wrap.classList.remove("dragging");
+    };
     ui.wrap.addEventListener("pointerup",end);
     ui.wrap.addEventListener("pointercancel",end);
     ui.pane.querySelectorAll(".erb-z").forEach(b=>b.onclick=()=>{
