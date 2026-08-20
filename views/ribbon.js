@@ -338,8 +338,9 @@
       if(line.lastIndexOf("bestmove",0)===0){
         if(curFen&&best){
           const btm=(curFen.split(" ")[1]==="b")?-1:1;
-          scanCache.set(curFen, best.cp!==undefined?{cp:best.cp*btm,depth:SCAN_DEPTH}
-                                                   :{mate:best.mate*btm,depth:SCAN_DEPTH});
+          const white=best.cp!==undefined?{cp:best.cp*btm}:{mate:best.mate*btm};
+          scanCache.set(curFen, Object.assign({depth:SCAN_DEPTH},white));
+          if(RT.setEval) RT.setEval(curFen, white, SCAN_DEPTH);   // share it with the whole app
         }
         best=null; curFen=null;
         next();

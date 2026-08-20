@@ -25,6 +25,7 @@
   --arrow-engine:#0369A1;    /* Stockfish suggestions — blue   */
   --arrow-casing:rgba(255,255,255,.92);
   --shape-G:#15803D; --shape-R:#DC2626; --shape-Y:#D97706; --shape-B:#1D4ED8;
+  --q-good:#15803D; --q-bad:#DC2626;   /* move-quality outline: best -> losing */
 }
 @media (prefers-color-scheme:dark){ :root:not([data-theme="light"]){
   --parchment:#15130F; --parchment-2:#1F1B15; --card:#211D17;
@@ -41,6 +42,7 @@
   --arrow-tree:#C4B5FD; --arrow-engine:#7DD3FC;
   --arrow-casing:rgba(10,8,5,.85);
   --shape-G:#4ADE80; --shape-R:#FB7185; --shape-Y:#FBBF24; --shape-B:#93C5FD;
+  --q-good:#4ADE80; --q-bad:#FB7185;
 }}
 :root[data-theme="dark"]{
   --parchment:#15130F; --parchment-2:#1F1B15; --card:#211D17;
@@ -57,6 +59,7 @@
   --arrow-tree:#C4B5FD; --arrow-engine:#7DD3FC;
   --arrow-casing:rgba(10,8,5,.85);
   --shape-G:#4ADE80; --shape-R:#FB7185; --shape-Y:#FBBF24; --shape-B:#93C5FD;
+  --q-good:#4ADE80; --q-bad:#FB7185;
 }
 
 *{box-sizing:border-box}
@@ -245,7 +248,7 @@ textarea{min-height:92px}
   <header class="top">
     <h1 title="Your own analysis board — branch freely, name the lines that matter.">Repertoire <span class="k">Table</span></h1>
     <div class="spacer"></div>
-    <label class="switch sm" title="Show the moves you have prepared from this position">
+    <label class="switch sm" title="Show the moves you have prepared from this position. Once Stockfish has scored them, the outline runs green (best) to red (worst).">
       <input type="checkbox" id="treeArrows" checked><span>Tree arrows</span></label>
     <button class="b sm" id="flip">Flip board <span class="kbd">f</span></button>
     <button class="b sm" id="reset">New study</button>
@@ -769,7 +772,7 @@ function makeOverlay(){
   svg.setAttribute("preserveAspectRatio","none");
   return svg;
 }
-function drawArrow(svg,from,to,color,opacity,width){
+function drawArrow(svg,from,to,color,opacity,width,casing){
   const a=sqCenter(from), b=sqCenter(to);
   const dx=b.x-a.x, dy=b.y-a.y, len=Math.hypot(dx,dy);
   if(!len) return;
@@ -795,7 +798,8 @@ function drawArrow(svg,from,to,color,opacity,width){
       tri.setAttribute("stroke-linejoin","round"); }
     g.appendChild(line); g.appendChild(tri);
   };
-  mk("var(--arrow-casing)",0.075,"var(--arrow-casing)");   // casing first, underneath
+  const cas=casing||"var(--arrow-casing)";
+  mk(cas,casing?0.105:0.075,cas);                         // casing first, underneath
   mk(color,0,color);
   svg.appendChild(g);
 }
@@ -853,14 +857,57 @@ function renderPreview(){
     }
   }
 }
+const mateToCp=m=>m>0?30000-Math.abs(m)*10:-30000+Math.abs(m)*10;
+
+/* score of each child from the MOVER's point of view, plus the best available
+   yardstick (your best prepared move, or Stockfish's best if it is running) */
+function moveQualities(){
+  const st=stateOf(cur), moverIsWhite=st.turn==="w";
+  const out=new Map();
+  for(const c of cur.children){
+    const e=evalOf(c);                       // white perspective
+    if(!e) continue;
+    const white=e.type==="mate"?mateToCp(e.mate):e.cp;
+    out.set(c, moverIsWhite?white:-white);
+  }
+  // Stockfish's MultiPV at this very position is already mover-perspective
+  if(sfOn&&sfRunningFEN===cur.fen){
+    for(let i=1;i<=SF_MULTIPV;i++){
+      const pv=sfPV[i]; if(!pv||!pv.pv.length) continue;
+      const m=findSAN(st,pv.pv[0]); if(!m) continue;
+      const san=moveSAN(st,m);
+      const child=cur.children.find(c=>c.san===san);
+      const val=pv.mate!==null&&pv.mate!==undefined?mateToCp(pv.mate):pv.cp;
+      if(child&&!out.has(child)) out.set(child,val);
+    }
+  }
+  if(!out.size) return null;
+  let best=-Infinity;
+  for(const v of out.values()) best=Math.max(best,v);
+  const eng=sfOn&&sfRunningFEN===cur.fen&&sfPV[1];   // engine's best is a fairer yardstick
+  if(eng){ const v=eng.mate!==null&&eng.mate!==undefined?mateToCp(eng.mate):eng.cp;
+    best=Math.max(best,v); }
+  return {scores:out,best};
+}
+/* chess convention: ~50cp is an inaccuracy, ~100 a mistake, 200+ a blunder,
+   so the ramp saturates at 150cp rather than treating a lost pawn as mild */
+function qualityCasing(loss){
+  const t=Math.pow(Math.min(1,Math.max(0,loss)/150),0.7);
+  return "color-mix(in oklab, var(--q-bad) "+Math.round(t*100)+"%, var(--q-good))";
+}
+
 /* every move prepared from the current position, drawn on the board */
 function renderTreeArrows(layer){
   if(!treeArrowsOn) return;
+  const q=moveQualities();
   const kids=cur.children;
   for(let i=kids.length-1;i>=0;i--){
     const k=kids[i]; if(!k.move) continue;
     const main=i===0;
-    drawArrow(layer,k.move.from,k.move.to,"var(--arrow-tree)",main?0.95:0.6,main?0.17:0.12);
+    let casing=null;
+    if(q&&q.scores.has(k)) casing=qualityCasing(q.best-q.scores.get(k));
+    drawArrow(layer,k.move.from,k.move.to,"var(--arrow-tree)",
+      main?0.95:0.65,main?0.17:0.12,casing);
   }
 }
 function previewMove(node){
@@ -1093,7 +1140,7 @@ function handleUCI(line){
         evalCache.set(sfRunningFEN,{depth:+d[1],cp:cp?+cp[1]:null,mate:mate?+mate[1]:null,
           turn:sfRunningFEN.split(" ")[1]});
     }
-    renderEngine();
+    renderEngine(); renderPreview();
   }
 }
 function stopEngine(){
@@ -1315,6 +1362,17 @@ function computeMetrics(){          // memoised per render; stamps _size/_depth/
 function metricsOf(n){ if(metricsStamp!==metricsRun){ computeMetrics(); metricsStamp=metricsRun; }
   return {size:n._size|0, depth:n._depth|0, forks:n._forks|0, named:n._named|0}; }
 
+/* record a score for a position; `sc` is {cp} or {mate} from WHITE's perspective */
+function setEval(fen,sc,depth){
+  if(!fen||!sc) return;
+  const turn=fen.split(" ")[1]||"w", sign=turn==="b"?-1:1, d=depth||0;
+  const prev=evalCache.get(fen);
+  if(prev&&prev.depth>d) return;
+  evalCache.set(fen,{depth:d,turn,
+    cp:sc.cp!==undefined?sc.cp*sign:null, mate:sc.mate!==undefined?sc.mate*sign:null});
+  evalRev++;
+}
+
 /* white-perspective centipawn score for a node, or null */
 function evalOf(n){
   const e=evalCache.get(n.fen); if(!e) return null;
@@ -1467,7 +1525,7 @@ function updateActiveView(){
 window.RT={
   get root(){return root}, get cur(){return cur}, get flipped(){return flipped},
   allNodes, pathTo, stateOf, moveNumber, metricsOf, evalOf, miniBoard,
-  previewMove,                                  // hover a move anywhere -> arrow on the board
+  previewMove, setEval,                         // previewMove: one-off arrow; setEval: publish a score
   idOf(node){ return node.id; },                 // stable per session
   plyOf(node){ let d=0; while(node&&node.parent){d++;node=node.parent} return d; },
   get revision(){ return metricsRun; },          // bumps on any tree/nav change
