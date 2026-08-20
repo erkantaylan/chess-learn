@@ -24,6 +24,11 @@
 .eribbon button.erb-go{background:var(--brass);color:var(--on-brass);border-color:var(--brass)}
 .eribbon button[disabled]{opacity:.5;cursor:default}
 .eribbon .erb-prog{min-width:120px;color:var(--ink-2)}
+.eribbon .erb-zoom{display:inline-flex;gap:2px;margin-right:6px}
+.eribbon button.erb-z{padding:1px 7px;font-size:12px;line-height:1.4;min-width:24px}
+.eribbon .erb-wrap{cursor:grab}
+.eribbon .erb-wrap.dragging{cursor:grabbing}
+.eribbon .erb-zlabel{font-family:"IBM Plex Mono",monospace;font-size:10px;fill:var(--ink-3)}
 .eribbon .erb-wrap{position:relative;flex:1 1 auto;min-height:0;overflow:hidden}
 .eribbon svg{display:block;width:100%;height:100%}
 .eribbon .erb-hit{stroke:transparent;fill:none;stroke-width:9;cursor:pointer}
@@ -48,6 +53,7 @@
 
   /* ---------------- scan state (module-level, survives update()) ---------------- */
   const scanCache=new Map();          // fen -> {cp}|{mate}  (WHITE perspective)
+  let zx=1, panPly=0, yMax=CLAMP;     // zoom: x scale, x offset in plies, y half-range
   let scan=null;                      // {worker,queue,i,total,cancel}
   let ui=null;                        // dom refs
 
@@ -58,9 +64,9 @@
     const e=RT.evalOf(n); if(e) return e;
     return scanCache.get(n.fen)||null;
   }
-  function toY(e){                     // pawns, clamped
-    if(e.mate!==undefined&&e.mate!==null) return e.mate>=0?CLAMP:-CLAMP;
-    return Math.max(-CLAMP,Math.min(CLAMP,(e.cp||0)/100));
+  function toY(e){                     // pawns, clamped to the visible range
+    if(e.mate!==undefined&&e.mate!==null) return e.mate>=0?yMax:-yMax;
+    return Math.max(-yMax,Math.min(yMax,(e.cp||0)/100));
   }
   function evText(e){
     if(e.mate!==undefined&&e.mate!==null) return "#"+(e.mate>0?"":"-")+Math.abs(e.mate);
@@ -85,6 +91,11 @@
           '<span class="erb-cov"></span>'+
           '<span class="erb-spacer"></span>'+
           '<span class="erb-prog"></span>'+
+          '<span class="erb-zoom">'+
+            '<button class="erb-z" data-z="out" title="Zoom out (wheel down)">−</button>'+
+            '<button class="erb-z" data-z="in" title="Zoom in (wheel up over the chart)">+</button>'+
+            '<button class="erb-z" data-z="fit" title="Fit the whole study">fit</button>'+
+          '</span>'+
           '<button class="erb-go"></button>'+
         '</div>'+
         '<div class="erb-wrap"><div class="erb-empty"><span></span></div>'+
@@ -103,6 +114,7 @@
         empty:pane.querySelector(".erb-empty"),
         emptyMsg:pane.querySelector(".erb-empty span"),
         tip:pane.querySelector(".erb-tip")};
+      initZoom();
       ui.btn.onclick=()=>{ if(scan) cancelScan(); else startScan(); };
       if(window.ResizeObserver){
         let raf=0;
@@ -139,11 +151,15 @@
     const W=Math.max(320,ui.wrap.clientWidth||640), H=Math.max(200,ui.wrap.clientHeight||360);
     const mL=44,mR=14,mT=12,mB=26;
     const maxPly=Math.max(1,Math.max.apply(null,nodes.map(n=>ply.get(n)||0)));
-    const X=p=>mL+(W-mL-mR)*(maxPly?p/maxPly:0);
+    const span=Math.max(2,maxPly/zx);                       // plies visible
+    panPly=Math.max(0,Math.min(maxPly-span,panPly));        // keep the window on the data
+    view.maxPly=maxPly; view.span=span; view.W=W; view.mL=mL; view.mR=mR;
+    const X=p=>mL+(W-mL-mR)*((p-panPly)/span);
     /* non-linear y: expands the near-equal region where opening evals live,
        while ±5 still sits at the edges. Honest — every gridline is placed by Y(). */
-    const K=0.55, NRM=Math.pow(CLAMP,K);
-    const warp=v=>(v<0?-1:1)*Math.pow(Math.abs(v),K)/NRM;   // -> [-1,1]
+    const K=0.55, NRM=Math.pow(yMax,K);
+    const warp=v=>{const c=Math.max(-yMax,Math.min(yMax,v));
+      return (c<0?-1:1)*Math.pow(Math.abs(c),K)/NRM;};      // -> [-1,1]
     const Y=v=>mT+(H-mT-mB)*((1-warp(v))/2);
 
     const svg=ui.svg; svg.textContent="";
@@ -153,23 +169,31 @@
     /* equal band + zero line + y grid */
     el("rect",{x:mL,y:Y(0.5),width:W-mL-mR,height:Math.max(1,Y(-0.5)-Y(0.5)),
       fill:"var(--ink-3)","fill-opacity":.07},svg);
-    for(const v of [-4,-2,-1,1,2,4]){
+    const ticks=(yMax>3?[-4,-2,-1,1,2,4]:yMax>1.2?[-2,-1,-0.5,0.5,1,2]
+                :yMax>0.6?[-1,-0.5,-0.25,0.25,0.5,1]:[-0.5,-0.25,-0.1,0.1,0.25,0.5])
+                .filter(v=>Math.abs(v)<=yMax);
+    for(const v of ticks){
       el("line",{x1:mL,y1:Y(v),x2:W-mR,y2:Y(v),stroke:"var(--line)","stroke-width":1,
         "stroke-opacity":.7},svg);
       el("text",{x:mL-6,y:Y(v)+3.5,"text-anchor":"end","font-size":10,fill:"var(--ink-3)"},svg)
-        .textContent=(v>0?"+":"")+v; }
+        .textContent=(v>0?"+":"")+(Math.abs(v)<1?v.toFixed(2):v); }
     el("line",{x1:mL,y1:Y(0),x2:W-mR,y2:Y(0),stroke:"var(--ink-2)","stroke-width":1.2},svg);
     el("text",{x:mL-6,y:Y(0)+3.5,"text-anchor":"end","font-size":10,fill:"var(--ink-2)"},svg)
       .textContent="0.00";
 
     /* x ticks: one per full move */
-    const step=Math.max(2,2*Math.ceil(maxPly/2/12));
-    for(let p=0;p<=maxPly;p+=step){
+    const step=Math.max(2,2*Math.ceil(span/2/12));
+    const p0=Math.max(0,Math.floor(panPly/step)*step);
+    for(let p=p0;p<=Math.min(maxPly,panPly+span);p+=step){
       el("line",{x1:X(p),y1:H-mB,x2:X(p),y2:H-mB+3,stroke:"var(--line)"},svg);
       el("text",{x:X(p),y:H-mB+14,"text-anchor":"middle","font-size":10,fill:"var(--ink-3)"},svg)
         .textContent=String(1+Math.floor(p/2));
     }
     el("line",{x1:mL,y1:H-mB,x2:W-mR,y2:H-mB,stroke:"var(--line)"},svg);
+    if(zx>1.01||yMax<CLAMP-0.01)
+      el("text",{x:W-mR,y:mT+10,"text-anchor":"end",class:"erb-zlabel"},svg)
+        .textContent="moves "+(1+Math.floor(panPly/2))+"–"+(1+Math.floor((panPly+span)/2))
+          +" · ±"+yMax.toFixed(yMax<1?2:1);
 
     /* nearest known ancestor for each evaluated node -> one segment per node */
     const curPath=new Set(RT.pathTo(cur)); curPath.add(root);
@@ -241,6 +265,50 @@
   }
 
   /* ---------------- hover / click ---------------- */
+  const view={maxPly:1,span:1,W:640,mL:44,mR:14};
+  function zoomAt(clientX,factor){
+    const r=ui.wrap.getBoundingClientRect();
+    const inner=Math.max(1,view.W-view.mL-view.mR);
+    const t=Math.max(0,Math.min(1,(clientX-r.left-view.mL)/inner));   // cursor in [0,1]
+    const anchor=panPly+t*view.span;                                  // ply under cursor
+    zx=Math.max(1,Math.min(24,zx*factor));
+    const span=Math.max(2,view.maxPly/zx);
+    panPly=anchor-t*span;                                             // hold it in place
+    render();
+  }
+  function initZoom(){
+    ui.wrap.addEventListener("wheel",e=>{
+      if(e.ctrlKey) return;
+      e.preventDefault();
+      if(e.shiftKey){                       // vertical zoom: tighten the eval range
+        yMax=Math.max(0.4,Math.min(CLAMP,yMax*(e.deltaY>0?1.18:1/1.18)));
+        render(); return;
+      }
+      zoomAt(e.clientX,e.deltaY>0?1/1.18:1.18);
+    },{passive:false});
+    let dragX=null,dragPan=0;
+    ui.wrap.addEventListener("pointerdown",e=>{
+      if(e.target.closest(".erb-tip")) return;
+      dragX=e.clientX; dragPan=panPly; ui.wrap.classList.add("dragging");
+      ui.wrap.setPointerCapture(e.pointerId);
+    });
+    ui.wrap.addEventListener("pointermove",e=>{
+      if(dragX===null) return;
+      const inner=Math.max(1,view.W-view.mL-view.mR);
+      panPly=dragPan-((e.clientX-dragX)/inner)*view.span;
+      render();
+    });
+    const end=()=>{ dragX=null; ui.wrap.classList.remove("dragging"); };
+    ui.wrap.addEventListener("pointerup",end);
+    ui.wrap.addEventListener("pointercancel",end);
+    ui.pane.querySelectorAll(".erb-z").forEach(b=>b.onclick=()=>{
+      const r=ui.wrap.getBoundingClientRect();
+      if(b.dataset.z==="in") zoomAt(r.left+r.width/2,1.5);
+      else if(b.dataset.z==="out") zoomAt(r.left+r.width/2,1/1.5);
+      else { zx=1; panPly=0; yMax=CLAMP; render(); }
+    });
+  }
+
   function bind(target,n,e,gap){
     target.addEventListener("mouseenter",ev=>showTip(ev,n,e,gap));
     target.addEventListener("mousemove",ev=>posTip(ev));
