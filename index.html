@@ -799,7 +799,7 @@ function drawArrow(svg,from,to,color,opacity,width,casing){
     g.appendChild(line); g.appendChild(tri);
   };
   const cas=casing||"var(--arrow-casing)";
-  mk(cas,casing?0.105:0.075,cas);                         // casing first, underneath
+  mk(cas,0.085,cas);                                      // contrast casing, underneath
   mk(color,0,color);
   svg.appendChild(g);
 }
@@ -891,7 +891,7 @@ function moveQualities(){
 }
 /* chess convention: ~50cp is an inaccuracy, ~100 a mistake, 200+ a blunder,
    so the ramp saturates at 150cp rather than treating a lost pawn as mild */
-function qualityCasing(loss){
+function qualityColor(loss){
   const t=Math.pow(Math.min(1,Math.max(0,loss)/150),0.7);
   return "color-mix(in oklab, var(--q-bad) "+Math.round(t*100)+"%, var(--q-good))";
 }
@@ -904,10 +904,9 @@ function renderTreeArrows(layer){
   for(let i=kids.length-1;i>=0;i--){
     const k=kids[i]; if(!k.move) continue;
     const main=i===0;
-    let casing=null;
-    if(q&&q.scores.has(k)) casing=qualityCasing(q.best-q.scores.get(k));
-    drawArrow(layer,k.move.from,k.move.to,"var(--arrow-tree)",
-      main?0.95:0.65,main?0.17:0.12,casing);
+    const body=(q&&q.scores.has(k)) ? qualityColor(q.best-q.scores.get(k))
+                                    : "var(--arrow-tree)";   // unscored moves stay violet
+    drawArrow(layer,k.move.from,k.move.to,body,main?0.95:0.7,main?0.17:0.12);
   }
 }
 function previewMove(node){
@@ -1492,9 +1491,14 @@ function registerView(v){
   buildTabs();
   if(v.id===activeView) activateView(v.id);
 }
+const VIEW_ORDER=["ribbon","list","map","cards","sheet","wheel"];
 function buildTabs(){
   const bar=$("viewTabs"); bar.textContent="";
   const all=[{id:"list",label:"List"}].concat(views.map(v=>({id:v.id,label:v.label})));
+  all.sort((a,b)=>{
+    const i=VIEW_ORDER.indexOf(a.id), j=VIEW_ORDER.indexOf(b.id);
+    return (i<0?99:i)-(j<0?99:j);
+  });
   for(const t of all){
     const b=document.createElement("button");
     b.textContent=t.label; b.className=t.id===activeView?"on":"";
