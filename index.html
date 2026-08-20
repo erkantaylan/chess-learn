@@ -18,7 +18,8 @@
   --piece-w:#FFFDF7; --piece-b:#221D16; --piece-edge:#0E0B07;
   --shadow:0 1px 0 rgba(28,24,19,.06), 0 12px 30px -18px rgba(28,24,19,.5);
   --on-brass:#FFFDF7;
-  --treeH:min(74vh,720px);   /* move-tree height; drag the pane corner to change */
+  --treeH:min(74vh,720px);   /* move-tree height — drag the grip under the tabs   */
+  --railW:400px;             /* right column width — drag the grip between columns */
 }
 @media (prefers-color-scheme:dark){ :root:not([data-theme="light"]){
   --parchment:#15130F; --parchment-2:#1F1B15; --card:#211D17;
@@ -62,8 +63,14 @@ h1 .k{color:var(--brass)}
 .top .spacer{flex:1}
 button.b.sm{padding:1px 8px;font-size:11.5px}
 
-.cols{display:grid;grid-template-columns:minmax(320px,1fr) minmax(330px,420px);gap:26px;align-items:start}
-@media (max-width:900px){.cols{grid-template-columns:1fr}}
+.cols{display:grid;grid-template-columns:minmax(300px,1fr) 10px minmax(300px,var(--railW,400px));
+  gap:6px;align-items:start}
+.vgrip{position:sticky;top:14px;height:220px;display:flex;align-items:center;justify-content:center;
+  cursor:col-resize;user-select:none;touch-action:none;border-radius:3px}
+.vgrip i{display:block;width:3px;height:46px;border-radius:2px;background:var(--ink-3);opacity:.35;
+  transition:opacity .12s,background .12s,height .12s}
+.vgrip:hover i,.vgrip.dragging i{opacity:1;background:var(--brass);height:80px}
+@media (max-width:900px){.cols{grid-template-columns:1fr}.vgrip{display:none}}
 
 .plate{position:relative;background:var(--card);border:1px solid var(--line);
   box-shadow:var(--shadow);padding:14px}
@@ -121,6 +128,7 @@ button.b.sm{padding:1px 8px;font-size:11.5px}
 .sq.cap .hint{width:96%;height:96%;background:none;box-shadow:inset 0 0 0 6px var(--hint)}
 .overlay{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:6;overflow:visible}
 #engineLayer{z-index:5}
+#previewLayer{z-index:7}
 .pc{position:absolute;inset:0;width:100%;height:100%;display:block;z-index:2;cursor:grab;
   pointer-events:none;filter:drop-shadow(0 2px 2px rgba(0,0,0,.28))}
 .pc.dragging{opacity:.22}
@@ -152,6 +160,14 @@ button.b .kbd{font-family:"IBM Plex Mono",monospace;color:var(--ink-3);font-size
 .phead h2{font-family:Fraunces,Georgia,serif;font-size:14px;margin:0;font-weight:600;letter-spacing:.02em}
 .phead .n{margin-left:auto;font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink-3)}
 
+.grip{height:14px;display:flex;align-items:center;justify-content:center;gap:8px;cursor:ns-resize;
+  border-top:1px solid var(--line);background:var(--parchment-2);user-select:none;touch-action:none}
+.grip span{width:30px;height:3px;border-radius:2px;background:var(--ink-3);opacity:.4;transition:opacity .12s,background .12s}
+.grip em{font-style:normal;font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-3);
+  opacity:0;transition:opacity .12s}
+.grip:hover span,.grip.dragging span{opacity:1;background:var(--brass)}
+.grip:hover em,.grip.dragging em{opacity:.75}
+.grip.dragging{background:var(--card)}
 .tabs{display:flex;gap:2px;padding:6px 8px 0;border-bottom:1px solid var(--line);flex-wrap:wrap}
 .tabs button{background:none;border:1px solid transparent;border-bottom:none;padding:4px 10px;cursor:pointer;
   font-size:12px;color:var(--ink-3);position:relative;top:1px}
@@ -160,10 +176,8 @@ button.b .kbd{font-family:"IBM Plex Mono",monospace;color:var(--ink-3);font-size
   border-bottom:1px solid var(--card)}
 #viewHost{display:none}
 #viewHost.on{display:block}
-#viewHost .viewpane{padding:10px 12px 14px;height:var(--treeH);max-height:none;overflow:auto;
-  resize:vertical;min-height:180px}
-#tree{padding:12px 14px 16px;height:var(--treeH);max-height:none;overflow:auto;
-  resize:vertical;min-height:180px;
+#viewHost .viewpane{padding:10px 12px 14px;height:var(--treeH);max-height:none;overflow:auto;min-height:180px}
+#tree{padding:12px 14px 16px;height:var(--treeH);max-height:none;overflow:auto;min-height:180px;
   font-family:"IBM Plex Mono",monospace;font-size:13.5px;line-height:1.95}
 #tree .empty{font-family:"IBM Plex Sans",sans-serif;color:var(--ink-3);font-size:13px;margin:0}
 .mv{cursor:pointer;padding:1px 4px;white-space:nowrap;border-bottom:1.5px solid transparent}
@@ -261,6 +275,8 @@ textarea{min-height:92px}
       </div>
     </div>
 
+    <div class="vgrip" id="railGrip" title="Drag to widen the panel — double-click to reset"><i></i></div>
+
     <div>
       <div class="panel">
         <div class="phead"><h2>Stockfish</h2>
@@ -278,6 +294,7 @@ textarea{min-height:92px}
         <div class="tabs" id="viewTabs"></div>
         <div id="tree"></div>
         <div id="viewHost"></div>
+        <div class="grip" id="treeGrip" title="Drag to resize the move tree"><span></span><em>drag to resize</em></div>
       </div>
       <div class="panel">
         <div class="phead"><h2>Named lines</h2><span class="n" id="lineCount"></span></div>
@@ -636,7 +653,8 @@ function renderBoard(){
   }
   const eng=makeOverlay(); eng.id="engineLayer"; boardEl.appendChild(eng);
   const shp=makeOverlay(); shp.id="shapeLayer"; boardEl.appendChild(shp);
-  renderShapes(); renderEngineArrows();
+  const prv=makeOverlay(); prv.id="previewLayer"; boardEl.appendChild(prv);
+  renderShapes(); renderEngineArrows(); renderPreview();
   $("turnDot").className="dot"+(s.turn==="b"?" b":"");
   $("turnTxt").textContent=(s.turn==="w"?"White":"Black")+" to move · move "+s.full;
   $("status").textContent=outcome(s);
@@ -658,6 +676,8 @@ function mvSpan(node,forceNum){
   b.appendChild(document.createTextNode(node.san));
   if(node.comment) b.title=node.comment;
   b.onclick=()=>{cur=node;sel=null;renderAll()};
+  b.onmouseenter=()=>previewMove(node);
+  b.onmouseleave=()=>previewMove(null);
   frag.appendChild(b);
   if(node.name){ const tag=document.createElement("span"); tag.className="tag"; tag.textContent=node.name;
     tag.title="Click to rename";
@@ -712,11 +732,13 @@ function renderLines(){
     pv.textContent=pathTo(n).map(x=>{const mn=moveNumber(x);return (mn.white?mn.no+".":"")+x.san}).join(" ");
     row.appendChild(nm); row.appendChild(pv);
     row.onclick=()=>{cur=n;sel=null;renderAll()};
+    row.onmouseenter=()=>previewMove(n);
+    row.onmouseleave=()=>previewMove(null);
     el.appendChild(row);
   }
 }
 let analyzeT;
-function renderAll(){ metricsRun++; renderBoard(); renderTree(); updateActiveView(); save();
+function renderAll(){ metricsRun++; previewNode=null; renderBoard(); renderTree(); updateActiveView(); save();
   clearTimeout(analyzeT); analyzeT=setTimeout(analyze,120); }
 
 /* ---------------------------- shapes (arrows & circles) ---------------------------- */
@@ -787,6 +809,31 @@ function toggleShape(sh){
   renderShapes(); save();
 }
 let pendingArrow=null;
+let previewNode=null;          // a tree move being hovered, shown as an arrow on the board
+
+function renderPreview(){
+  const layer=$("previewLayer"); if(!layer) return;
+  layer.textContent="";
+  const n=previewNode;
+  if(!n||!n.move) return;
+  // the move belongs to the position BEFORE it; say so when the board is elsewhere
+  const inContext=n.parent&&n.parent.fen===cur.fen;
+  drawArrow(layer,n.move.from,n.move.to,"var(--brass)",inContext?0.92:0.5,inContext?0.17:0.12);
+  if(!inContext){                                  // ghost dots: this move is from another position
+    for(const sq of [n.move.from,n.move.to]){
+      const p=sqCenter(sq);
+      const c=document.createElementNS(SVGNS2,"circle");
+      c.setAttribute("cx",p.x); c.setAttribute("cy",p.y); c.setAttribute("r",0.12);
+      c.setAttribute("fill","var(--brass)"); c.setAttribute("opacity",.55);
+      layer.appendChild(c);
+    }
+  }
+}
+function previewMove(node){
+  if(previewNode===node) return;
+  previewNode=node||null;
+  renderPreview();
+}
 
 /* ---------------------------- interaction ---------------------------- */
 function tryMove(from,to){
@@ -1269,23 +1316,76 @@ function miniBoard(fen,px,opts){
   return wrap;
 }
 
-/* the tree pane is drag-resizable; remember the height and share it across tabs */
-function paneEls(){ return [$("tree")].concat(views.map(v=>v.pane).filter(Boolean)); }
+/* the tree pane is drag-resizable via the grip below it; height is shared by every tab */
 function applyTreeHeight(px){
   document.documentElement.style.setProperty("--treeH",px?px+"px":"min(74vh,720px)");
-  for(const el of paneEls()) el.style.height="";   // let the shared var win again
 }
-let sizeT;
-function watchPaneSize(el){
-  if(!el||el._sized) return; el._sized=true;
-  new ResizeObserver(()=>{
-    if(!el.style.height) return;                    // not a user drag
-    const px=Math.round(el.getBoundingClientRect().height);
-    if(px<120) return;
-    clearTimeout(sizeT);
-    sizeT=setTimeout(()=>{ try{ localStorage.setItem("repertoire-treeH",px); }catch(e){}
-      applyTreeHeight(px); },250);
-  }).observe(el);
+function applyRailWidth(px){
+  document.documentElement.style.setProperty("--railW",px?px+"px":"400px");
+}
+function initRailGrip(){
+  const grip=$("railGrip"); if(!grip) return;
+  const rail=grip.nextElementSibling;
+  let startX=0,startW=0,dragging=false;
+  grip.addEventListener("pointerdown",e=>{
+    dragging=true; startX=e.clientX; startW=rail.getBoundingClientRect().width;
+    grip.classList.add("dragging"); grip.setPointerCapture(e.pointerId); e.preventDefault();
+  });
+  grip.addEventListener("pointermove",e=>{
+    if(!dragging) return;
+    const max=Math.max(320,Math.round(document.querySelector(".wrap").clientWidth*0.66));
+    const px=Math.max(300,Math.min(max,Math.round(startW-(e.clientX-startX))));
+    applyRailWidth(px);
+    clearTimeout(grip._t); grip._t=setTimeout(updateActiveView,90);
+  });
+  const stop=()=>{
+    if(!dragging) return;
+    dragging=false; grip.classList.remove("dragging");
+    const px=Math.round(rail.getBoundingClientRect().width);
+    try{ localStorage.setItem("repertoire-railW",px); }catch(e){}
+    updateActiveView();                      // views measure their own width
+  };
+  grip.addEventListener("pointerup",stop);
+  grip.addEventListener("pointercancel",stop);
+  grip.addEventListener("dblclick",()=>{
+    applyRailWidth(null);
+    try{ localStorage.removeItem("repertoire-railW"); }catch(e){}
+    updateActiveView(); toast("Panel width reset");
+  });
+}
+function initGrip(){
+  const grip=$("treeGrip"); if(!grip) return;
+  let startY=0, startH=0, dragging=false;
+  const visiblePane=()=>{
+    const v=views.find(x=>x.id===activeView);
+    return (v&&v.pane&&v.pane.isConnected)?v.pane:$("tree");
+  };
+  grip.addEventListener("pointerdown",e=>{
+    dragging=true; startY=e.clientY;
+    startH=visiblePane().getBoundingClientRect().height;
+    grip.classList.add("dragging");
+    grip.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+  grip.addEventListener("pointermove",e=>{
+    if(!dragging) return;
+    const px=Math.max(180,Math.min(Math.round(window.innerHeight*0.9),
+      Math.round(startH+(e.clientY-startY))));
+    applyTreeHeight(px);
+  });
+  const stop=()=>{
+    if(!dragging) return;
+    dragging=false; grip.classList.remove("dragging");
+    const px=Math.round(visiblePane().getBoundingClientRect().height);
+    try{ localStorage.setItem("repertoire-treeH",px); }catch(e){}
+  };
+  grip.addEventListener("pointerup",stop);
+  grip.addEventListener("pointercancel",stop);
+  grip.addEventListener("dblclick",()=>{                 // double-click resets
+    applyTreeHeight(null);
+    try{ localStorage.removeItem("repertoire-treeH"); }catch(e){}
+    toast("Move tree height reset");
+  });
 }
 
 const views=[];                      // {id,label,mount,update,pane}
@@ -1316,7 +1416,7 @@ function activateView(id){
   const v=views.find(x=>x.id===id);
   if(v){
     if(!v.pane){ v.pane=document.createElement("div"); v.pane.className="viewpane"; v.mount(v.pane); }
-    host.appendChild(v.pane); watchPaneSize(v.pane);
+    host.appendChild(v.pane);
     try{ v.update(); }catch(err){ console.error("view "+id+" failed:",err); }
   }
 }
@@ -1328,6 +1428,7 @@ function updateActiveView(){
 window.RT={
   get root(){return root}, get cur(){return cur}, get flipped(){return flipped},
   allNodes, pathTo, stateOf, moveNumber, metricsOf, evalOf, miniBoard,
+  previewMove,                                  // hover a move anywhere -> arrow on the board
   idOf(node){ return node.id; },                 // stable per session
   plyOf(node){ let d=0; while(node&&node.parent){d++;node=node.parent} return d; },
   get revision(){ return metricsRun; },          // bumps on any tree/nav change
@@ -1375,7 +1476,8 @@ if(!load()){
 }
 $("studyName").value="Urusov Gambit";
 buildTabs();
-watchPaneSize($("tree"));
+initGrip(); initRailGrip();
+try{ const w=parseInt(localStorage.getItem("repertoire-railW"),10); if(w>200) applyRailWidth(w); }catch(e){}
 try{ const h=parseInt(localStorage.getItem("repertoire-treeH"),10);
   if(h>120) document.documentElement.style.setProperty("--treeH",h+"px"); }catch(e){}
 try{ const v=localStorage.getItem("repertoire-view"); if(v) activeView=v; }catch(e){}
