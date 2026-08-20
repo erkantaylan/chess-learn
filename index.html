@@ -139,17 +139,33 @@ button.b.sm{padding:1px 8px;font-size:11.5px}
 .sq{position:relative;display:flex;align-items:center;justify-content:center}
 .sq.l{background:var(--sq-light)} .sq.d{background:var(--sq-dark)}
 .sq.last::after{content:"";position:absolute;inset:0;background:var(--last)}
+.sq.last.fresh::after{animation:lastfade .22s ease-out both}
+@keyframes lastfade{from{opacity:0}to{opacity:1}}
 .sq.sel::after{content:"";position:absolute;inset:0;background:var(--sel)}
 .sq.chk::after{content:"";position:absolute;inset:0;
   background:radial-gradient(circle,rgba(190,60,45,.85),rgba(190,60,45,0) 72%)}
+.sq.chk.fresh::after{animation:chkpulse .42s ease-out 1}
+@keyframes chkpulse{0%{opacity:0;transform:scale(.72)}45%{opacity:1;transform:scale(1.1)}100%{opacity:1;transform:scale(1)}}
 .hint{position:absolute;width:26%;height:26%;border-radius:50%;background:var(--hint);pointer-events:none;z-index:3}
 .sq.cap .hint{width:96%;height:96%;background:none;box-shadow:inset 0 0 0 6px var(--hint)}
 .overlay{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:6;overflow:visible}
 #engineLayer{z-index:5}
 #previewLayer{z-index:7}
-.pc{position:absolute;inset:0;width:100%;height:100%;display:block;z-index:2;cursor:grab;
-  pointer-events:none;filter:drop-shadow(0 2px 2px rgba(0,0,0,.28))}
+#pieceLayer{position:absolute;inset:0;z-index:2;pointer-events:none}
+.pc{position:absolute;top:0;left:0;width:12.5%;height:12.5%;display:block;cursor:grab;
+  pointer-events:none;will-change:transform;filter:drop-shadow(0 2px 2px rgba(0,0,0,.28))}
 .pc.dragging{opacity:.22}
+/* movement: transform only, so the browser can compose it off the main thread */
+.pc.mv{transition:transform 180ms cubic-bezier(.22,.72,.24,1);z-index:3}
+.pc.fade{transition:opacity 170ms ease-out,transform 170ms ease-out;opacity:0;transform-origin:50% 50%;z-index:1}
+.pc.settle>use{transform-box:fill-box;transform-origin:center;animation:settle .13s ease-out 1}
+@keyframes settle{from{transform:scale(1.05)}to{transform:scale(1)}}
+@media (prefers-reduced-motion:reduce){
+  .pc.mv{transition:none}
+  .pc.fade{transition:none}
+  .pc.settle>use{animation:none}
+  .sq.last.fresh::after,.sq.chk.fresh::after{animation:none}
+}
 #ghost{position:fixed;pointer-events:none;z-index:99;transform:translate(-50%,-50%);display:none}
 #ghost svg{display:block;filter:drop-shadow(0 6px 10px rgba(0,0,0,.45))}
 .coord{position:absolute;font-size:9.5px;font-family:"IBM Plex Mono",monospace;font-weight:600;opacity:.65;pointer-events:none;z-index:4}
@@ -646,10 +662,122 @@ const codeOf=p=>(isW(p)?"w":"b")+p.toUpperCase();
 const $=id=>document.getElementById(id);
 const boardEl=$("board");
 
+/* ---- persistent piece layer + movement animation ----
+   Technique borrowed (not code) from lichess's chessground: pieces are absolutely
+   positioned elements that live outside the squares and are placed with
+   transform:translate(). Between two positions we diff old/new occupancy and pair
+   each newly-occupied square with the nearest vacated square holding the same
+   piece, so a move animates one element instead of rebuilding the board. Only
+   composited properties (transform/opacity) are animated. */
+const ANIM_MS=180;                       // chessground's default is 200ms; slightly quicker here
+const reduceMotion=window.matchMedia?window.matchMedia("(prefers-reduced-motion:reduce)"):{matches:false};
+let pieceLayer=null;                     // persistent container inside .boardgrid
+let pieceMap=new Map();                  // "r,c" -> {el, code}
+let lastBoardNode=null, lastBoardFlip=null;
+let skipAnimOnce=false;                  // set when a drag already put the piece there
+const pkey=(r,c)=>r+","+c;
+function sqToRC(nm){ return nm?{r:8-(+nm[1]),c:FILES.indexOf(nm[0])}:null; }
+function placePiece(el,r,c,animated){
+  const dr=flipped?7-r:r, dc=flipped?7-c:c;
+  const t="translate("+(dc*100)+"%,"+(dr*100)+"%)";
+  if(animated){ el.classList.add("mv"); el.style.transform=t; }
+  else{
+    el.classList.remove("mv");
+    el.style.transform=t;
+  }
+}
+function newPieceEl(code,r,c){
+  const el=pieceSVG(code);
+  el.dataset.code=code;
+  placePiece(el,r,c,false);
+  pieceLayer.appendChild(el);
+  return el;
+}
+function setCode(el,code){
+  el.dataset.code=code;
+  el.firstChild.setAttribute("href","#p-"+code);
+}
+function renderPieces(s,animated){
+  if(!pieceLayer){ pieceLayer=document.createElement("div"); pieceLayer.id="pieceLayer"; }
+  if(pieceLayer.parentNode!==boardEl) boardEl.appendChild(pieceLayer);
+  const next=new Map();
+  for(let r=0;r<8;r++) for(let c=0;c<8;c++){ const p=s.board[r][c]; if(p) next.set(pkey(r,c),codeOf(p)); }
+
+  const keep=new Map(), missing=[], fresh=[];
+  for(const [k,rec] of pieceMap){
+    if(next.get(k)===rec.code) keep.set(k,rec);
+    else missing.push({k,r:+k.split(",")[0],c:+k.split(",")[1],code:rec.code,el:rec.el});
+  }
+  for(const [k,code] of next){
+    const held=keep.get(k);
+    if(!held) fresh.push({k,r:+k.split(",")[0],c:+k.split(",")[1],code});
+  }
+
+  if(lastBoardFlip!==null&&lastBoardFlip!==flipped)          // board was flipped: re-place everything
+    for(const [k,rec] of keep) placePiece(rec.el,+k.split(",")[0],+k.split(",")[1],false);
+
+  const out=new Map(keep);
+  const take=(pred)=>{ const i=missing.findIndex(pred); return i<0?null:missing.splice(i,1)[0]; };
+
+  /* promotion: reuse the pawn element so it walks to the last rank and changes shape */
+  if(animated&&cur.move&&cur.move.promo){
+    const from=sqToRC(cur.move.from), to=sqToRC(cur.move.to);
+    const nf=fresh.findIndex(f=>f.r===to.r&&f.c===to.c);
+    if(nf>=0){
+      const m=take(x=>x.r===from.r&&x.c===from.c);
+      if(m){ const f=fresh.splice(nf,1)[0];
+        setCode(m.el,f.code); placePiece(m.el,f.r,f.c,true);
+        out.set(f.k,{el:m.el,code:f.code}); }
+    }
+  }
+
+  /* pair each arrival with the closest departure of the same piece */
+  for(const f of fresh){
+    let best=-1,bestD=Infinity;
+    for(let i=0;i<missing.length;i++){
+      const m=missing[i]; if(m.code!==f.code) continue;
+      const d=(m.r-f.r)*(m.r-f.r)+(m.c-f.c)*(m.c-f.c);
+      if(d<bestD){ bestD=d; best=i; }
+    }
+    if(best>=0){
+      const m=missing.splice(best,1)[0];
+      placePiece(m.el,f.r,f.c,animated);
+      if(animated){ settle(m.el); }
+      out.set(f.k,{el:m.el,code:f.code});
+    }else{
+      out.set(f.k,{el:newPieceEl(f.code,f.r,f.c),code:f.code});
+    }
+  }
+
+  /* leftovers were captured (or replaced): fade them out under the arriving piece */
+  for(const m of missing){
+    if(animated&&!reduceMotion.matches){
+      const el=m.el;
+      el.classList.remove("mv");
+      requestAnimationFrame(()=>{ el.classList.add("fade");
+        el.style.transform=el.style.transform+" scale(.82)"; });
+      setTimeout(()=>el.remove(),200);
+    }else m.el.remove();
+  }
+  pieceMap=out;
+}
+function settle(el){
+  if(reduceMotion.matches) return;
+  clearTimeout(el._st);
+  el._st=setTimeout(()=>{ el.classList.remove("settle"); void el.offsetWidth; el.classList.add("settle");
+    el._st=setTimeout(()=>el.classList.remove("settle"),160); },ANIM_MS-20);
+}
+
 function renderBoard(){
   const s=stateOf(cur);
   legalCache=legalMoves(s);
-  boardEl.textContent="";
+  /* one step apart (forward or backward) → animate; anything else snaps */
+  const stepped=lastBoardNode&&lastBoardNode!==cur&&
+    (cur.parent===lastBoardNode||lastBoardNode.parent===cur);
+  const animated=!!stepped&&lastBoardFlip===flipped&&!skipAnimOnce&&!reduceMotion.matches;
+  const changed=lastBoardNode!==cur;
+  skipAnimOnce=false;
+  for(const ch of Array.from(boardEl.children)) if(ch!==pieceLayer) ch.remove();
   const lastMv=cur.move;
   const kchk=inCheck(s,s.turn)?kingSq(s.board,s.turn):null;
   const idx=[0,1,2,3,4,5,6,7];
@@ -660,20 +788,20 @@ function renderBoard(){
     d.className="sq "+((r+c)%2?"d":"l");
     d.dataset.r=r; d.dataset.c=c;
     const nm=sqName(r,c);
-    if(lastMv&&(lastMv.from===nm||lastMv.to===nm)) d.classList.add("last");
+    if(lastMv&&(lastMv.from===nm||lastMv.to===nm)){ d.classList.add("last"); if(changed) d.classList.add("fresh"); }
     if(sel&&sel.r===r&&sel.c===c) d.classList.add("sel");
-    if(kchk&&kchk.r===r&&kchk.c===c) d.classList.add("chk");
+    if(kchk&&kchk.r===r&&kchk.c===c){ d.classList.add("chk"); if(changed) d.classList.add("fresh"); }
     if(sel){
       const hit=legalCache.find(m=>m.from.r===sel.r&&m.from.c===sel.c&&m.to.r===r&&m.to.c===c);
       if(hit){ if(s.board[r][c]||hit.ep) d.classList.add("cap");
         const h=document.createElement("span"); h.className="hint"; d.appendChild(h); }
     }
-    const p=s.board[r][c];
-    if(p) d.appendChild(pieceSVG(codeOf(p)));
     if(c===(flipped?7:0)){ const co=document.createElement("span"); co.className="coord r"; co.textContent=8-r; d.appendChild(co); }
     if(r===(flipped?0:7)){ const co=document.createElement("span"); co.className="coord f"; co.textContent=FILES[c]; d.appendChild(co); }
     boardEl.appendChild(d);
   }
+  renderPieces(s,animated);
+  lastBoardNode=cur; lastBoardFlip=flipped;
   const eng=makeOverlay(); eng.id="engineLayer"; boardEl.appendChild(eng);
   const shp=makeOverlay(); shp.id="shapeLayer"; boardEl.appendChild(shp);
   const prv=makeOverlay(); prv.id="previewLayer"; boardEl.appendChild(prv);
@@ -957,13 +1085,14 @@ boardEl.addEventListener("pointerdown",e=>{
   if(sel&&tryMove(sel,{r,c})) return;
   if(!p||(isW(p)?"w":"b")!==s.turn){ sel=null; renderBoard(); return; }
   sel={r,c}; renderBoard();
-  const pcEl=boardEl.querySelector('.sq[data-r="'+r+'"][data-c="'+c+'"] .pc');
+  const rec=pieceMap.get(pkey(r,c)), pcEl=rec&&rec.el;
   if(pcEl){
     drag={from:{r,c},el:pcEl};
     pcEl.classList.add("dragging");
     const g=$("ghost"); g.textContent="";
-    const box={width:boardEl.getBoundingClientRect().width/8};   // sq is detached after renderBoard()
-    const cl=pcEl.cloneNode(true); cl.classList.remove("dragging","pc");
+    const box={width:boardEl.getBoundingClientRect().width/8};   // pieces are % sized inside #pieceLayer
+    const cl=pcEl.cloneNode(true); cl.classList.remove("dragging","pc","mv","settle");
+    cl.style.transform=""; cl.style.position="static";
     cl.style.width=box.width+"px"; cl.style.height=box.width+"px";
     g.appendChild(cl);
     g.style.display="block"; g.style.left=e.clientX+"px"; g.style.top=e.clientY+"px";
@@ -995,7 +1124,7 @@ boardEl.addEventListener("pointerup",e=>{
   const el=document.elementFromPoint(e.clientX,e.clientY);
   const sq=el&&el.closest(".sq");
   if(sq){ const r=+sq.dataset.r,c=+sq.dataset.c;
-    if(!(r===d.from.r&&c===d.from.c)) tryMove(d.from,{r,c}); }
+    if(!(r===d.from.r&&c===d.from.c)){ skipAnimOnce=true; if(!tryMove(d.from,{r,c})) skipAnimOnce=false; } }
 });
 
 const go={
