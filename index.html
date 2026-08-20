@@ -20,6 +20,11 @@
   --on-brass:#FFFDF7;
   --treeH:min(74vh,720px);   /* move-tree height — drag the grip under the tabs   */
   --railW:400px;             /* right column width — drag the grip between columns */
+  /* arrows sit on a tan board, so they get saturated hues + a light casing */
+  --arrow-tree:#5B21B6;      /* your prepared moves — violet   */
+  --arrow-engine:#0369A1;    /* Stockfish suggestions — blue   */
+  --arrow-casing:rgba(255,255,255,.92);
+  --shape-G:#15803D; --shape-R:#DC2626; --shape-Y:#D97706; --shape-B:#1D4ED8;
 }
 @media (prefers-color-scheme:dark){ :root:not([data-theme="light"]){
   --parchment:#15130F; --parchment-2:#1F1B15; --card:#211D17;
@@ -33,6 +38,9 @@
   --piece-w:#F7F2E6; --piece-b:#1A1611; --piece-edge:#000;
   --shadow:0 1px 0 rgba(0,0,0,.3), 0 14px 34px -20px #000;
   --on-brass:#1A1611;
+  --arrow-tree:#C4B5FD; --arrow-engine:#7DD3FC;
+  --arrow-casing:rgba(10,8,5,.85);
+  --shape-G:#4ADE80; --shape-R:#FB7185; --shape-Y:#FBBF24; --shape-B:#93C5FD;
 }}
 :root[data-theme="dark"]{
   --parchment:#15130F; --parchment-2:#1F1B15; --card:#211D17;
@@ -46,6 +54,9 @@
   --piece-w:#F7F2E6; --piece-b:#1A1611; --piece-edge:#000;
   --shadow:0 1px 0 rgba(0,0,0,.3), 0 14px 34px -20px #000;
   --on-brass:#1A1611;
+  --arrow-tree:#C4B5FD; --arrow-engine:#7DD3FC;
+  --arrow-casing:rgba(10,8,5,.85);
+  --shape-G:#4ADE80; --shape-R:#FB7185; --shape-Y:#FBBF24; --shape-B:#93C5FD;
 }
 
 *{box-sizing:border-box}
@@ -744,7 +755,7 @@ function renderAll(){ metricsRun++; previewNode=null; renderBoard(); renderTree(
   clearTimeout(analyzeT); analyzeT=setTimeout(analyze,120); }
 
 /* ---------------------------- shapes (arrows & circles) ---------------------------- */
-const SHAPE_COLORS={G:"#3f8f3f",R:"#b03a2e",Y:"#c8a020",B:"#3a6ea5"};
+const SHAPE_COLORS={G:"var(--shape-G)",R:"var(--shape-R)",Y:"var(--shape-Y)",B:"var(--shape-B)"};
 const SVGNS2="http://www.w3.org/2000/svg";
 function shapeColorFor(e){ if(e.shiftKey) return "R"; if(e.altKey) return "B"; if(e.ctrlKey||e.metaKey) return "Y"; return "G"; }
 function sqCenter(name){ // -> {x,y} in 0..8 board units, honouring flip
@@ -769,25 +780,34 @@ function drawArrow(svg,from,to,color,opacity,width){
   const ex=b.x-ux*endGap,   ey=b.y-uy*endGap;
   const bx=ex-ux*head,      by=ey-uy*head;
   const g=document.createElementNS(SVGNS2,"g");
-  g.setAttribute("opacity",opacity==null?0.78:opacity);
-  const line=document.createElementNS(SVGNS2,"line");
-  line.setAttribute("x1",sx); line.setAttribute("y1",sy);
-  line.setAttribute("x2",bx); line.setAttribute("y2",by);
-  line.setAttribute("stroke",color); line.setAttribute("stroke-width",w);
-  line.setAttribute("stroke-linecap","round");
-  const tri=document.createElementNS(SVGNS2,"polygon");
+  g.setAttribute("opacity",opacity==null?0.85:opacity);
   const px=-uy, py=ux, hw=head*0.62;
-  tri.setAttribute("points",[ex+","+ey,(bx+px*hw)+","+(by+py*hw),(bx-px*hw)+","+(by-py*hw)].join(" "));
-  tri.setAttribute("fill",color);
-  g.appendChild(line); g.appendChild(tri); svg.appendChild(g);
+  const pts=[ex+","+ey,(bx+px*hw)+","+(by+py*hw),(bx-px*hw)+","+(by-py*hw)].join(" ");
+  const mk=(stroke,extra,fill)=>{
+    const line=document.createElementNS(SVGNS2,"line");
+    line.setAttribute("x1",sx); line.setAttribute("y1",sy);
+    line.setAttribute("x2",bx); line.setAttribute("y2",by);
+    line.setAttribute("stroke",stroke); line.setAttribute("stroke-width",w+extra);
+    line.setAttribute("stroke-linecap","round");
+    const tri=document.createElementNS(SVGNS2,"polygon");
+    tri.setAttribute("points",pts); tri.setAttribute("fill",fill);
+    if(extra){ tri.setAttribute("stroke",stroke); tri.setAttribute("stroke-width",extra);
+      tri.setAttribute("stroke-linejoin","round"); }
+    g.appendChild(line); g.appendChild(tri);
+  };
+  mk("var(--arrow-casing)",0.075,"var(--arrow-casing)");   // casing first, underneath
+  mk(color,0,color);
+  svg.appendChild(g);
 }
 function drawCircle(svg,sq,color){
   const p=sqCenter(sq);
-  const c=document.createElementNS(SVGNS2,"circle");
-  c.setAttribute("cx",p.x); c.setAttribute("cy",p.y); c.setAttribute("r",0.43);
-  c.setAttribute("fill","none"); c.setAttribute("stroke",color);
-  c.setAttribute("stroke-width",0.09); c.setAttribute("opacity",0.85);
-  svg.appendChild(c);
+  for(const [col,wdt] of [["var(--arrow-casing)",0.15],[color,0.09]]){
+    const c=document.createElementNS(SVGNS2,"circle");
+    c.setAttribute("cx",p.x); c.setAttribute("cy",p.y); c.setAttribute("r",0.43);
+    c.setAttribute("fill","none"); c.setAttribute("stroke",col);
+    c.setAttribute("stroke-width",wdt); c.setAttribute("opacity",0.9);
+    svg.appendChild(c);
+  }
 }
 function renderShapes(){
   const layer=$("shapeLayer"); if(!layer) return;
@@ -822,13 +842,13 @@ function renderPreview(){
   if(!n.move) return;
   // the move belongs to the position BEFORE it; say so when the board is elsewhere
   const inContext=n.parent&&n.parent.fen===cur.fen;
-  drawArrow(layer,n.move.from,n.move.to,"var(--brass)",inContext?0.92:0.5,inContext?0.17:0.12);
+  drawArrow(layer,n.move.from,n.move.to,"var(--arrow-tree)",inContext?0.95:0.55,inContext?0.18:0.12);
   if(!inContext){                                  // ghost dots: this move is from another position
     for(const sq of [n.move.from,n.move.to]){
       const p=sqCenter(sq);
       const c=document.createElementNS(SVGNS2,"circle");
       c.setAttribute("cx",p.x); c.setAttribute("cy",p.y); c.setAttribute("r",0.12);
-      c.setAttribute("fill","var(--brass)"); c.setAttribute("opacity",.55);
+      c.setAttribute("fill","var(--arrow-tree)"); c.setAttribute("opacity",.6);
       layer.appendChild(c);
     }
   }
@@ -840,7 +860,7 @@ function renderTreeArrows(layer){
   for(let i=kids.length-1;i>=0;i--){
     const k=kids[i]; if(!k.move) continue;
     const main=i===0;
-    drawArrow(layer,k.move.from,k.move.to,"var(--brass)",main?0.8:0.4,main?0.16:0.11);
+    drawArrow(layer,k.move.from,k.move.to,"var(--arrow-tree)",main?0.95:0.6,main?0.17:0.12);
   }
 }
 function previewMove(node){
@@ -1161,12 +1181,12 @@ function renderEngineArrows(){
   const layer=$("engineLayer"); if(!layer) return;
   layer.textContent="";
   if(!sfOn) return;
-  const shades=[{o:0.72,w:0.15},{o:0.4,w:0.11},{o:0.26,w:0.09}];
+  const shades=[{o:0.95,w:0.16},{o:0.6,w:0.12},{o:0.42,w:0.10}];
   for(let i=SF_MULTIPV;i>=1;i--){
     const e=sfPV[i]; if(!e||!e.pv.length) continue;
     const m=findSAN(stateOf(cur),e.pv[0]); if(!m) continue;
     const sh=shades[i-1]||shades[2];
-    drawArrow(layer,sqName(m.from.r,m.from.c),sqName(m.to.r,m.to.c),"#1f6f8b",sh.o,sh.w);
+    drawArrow(layer,sqName(m.from.r,m.from.c),sqName(m.to.r,m.to.c),"var(--arrow-engine)",sh.o,sh.w);
   }
 }
 function addPVToTree(uciList){
