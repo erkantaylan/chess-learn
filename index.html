@@ -301,6 +301,9 @@ textarea{min-height:92px}
       <div class="panel">
         <div class="phead"><h2>Stockfish</h2>
           <label class="switch"><input type="checkbox" id="engineOn"><span id="engineState">off</span></label>
+          <label class="switch sm" style="margin-left:10px"
+            title="Quietly score every position in the tree at depth 12 in the background, so the arrows stay graded without pressing Scan">
+            <input type="checkbox" id="autoEval" checked><span>auto</span></label>
         </div>
         <div class="engine">
           <div class="top-row"><span class="escore" id="escore">—</span>
@@ -755,7 +758,9 @@ function renderLines(){
 }
 let analyzeT;
 function renderAll(){ metricsRun++; previewNode=null; renderBoard(); renderTree(); updateActiveView(); save();
-  clearTimeout(analyzeT); analyzeT=setTimeout(analyze,120); }
+  clearTimeout(analyzeT); analyzeT=setTimeout(analyze,120);
+  clearTimeout(bgT); bgT=setTimeout(bgRefill,220); }
+let bgT;
 
 /* ---------------------------- shapes (arrows & circles) ---------------------------- */
 const SHAPE_COLORS={G:"var(--shape-G)",R:"var(--shape-R)",Y:"var(--shape-Y)",B:"var(--shape-B)"};
@@ -1007,6 +1012,12 @@ document.addEventListener("keydown",e=>{
   else if(e.key==="f"){ flipped=!flipped; renderBoard(); }
 });
 $("flip").onclick=()=>{flipped=!flipped;renderBoard()};
+$("autoEval").addEventListener("change",e=>{
+  bgOn=e.target.checked;
+  try{ localStorage.setItem("repertoire-autoeval",bgOn?"1":"0"); }catch(err){}
+  if(bgOn) bgRefill();
+  else { bgQueue=[]; if(bgW){ bgW.terminate(); bgW=null; bgReady=false; bgFen=null; } }
+});
 $("treeArrows").addEventListener("change",e=>{
   treeArrowsOn=e.target.checked;
   try{ localStorage.setItem("repertoire-treearrows",treeArrowsOn?"1":"0"); }catch(err){}
@@ -1133,7 +1144,7 @@ function handleUCI(line){
     const idx=mpv?+mpv[1]:1;
     sfPV[idx]={depth:+d[1], cp:cp?+cp[1]:null, mate:mate?+mate[1]:null, pv};
     if(idx===1&&sfRunningFEN){
-      evalRev++;
+      evalRev++; saveEvals();
       const prev=evalCache.get(sfRunningFEN);
       if(!prev||prev.depth<=+d[1])
         evalCache.set(sfRunningFEN,{depth:+d[1],cp:cp?+cp[1]:null,mate:mate?+mate[1]:null,
@@ -1362,6 +1373,27 @@ function metricsOf(n){ if(metricsStamp!==metricsRun){ computeMetrics(); metricsS
   return {size:n._size|0, depth:n._depth|0, forks:n._forks|0, named:n._named|0}; }
 
 /* record a score for a position; `sc` is {cp} or {mate} from WHITE's perspective */
+const EVAL_KEY="repertoire-evals", EVAL_MAX=6000;
+let evalSaveT;
+function saveEvals(){
+  clearTimeout(evalSaveT);
+  evalSaveT=setTimeout(()=>{
+    try{
+      const out=[];
+      for(const [fen,e] of evalCache) out.push([fen,e.depth,e.cp,e.mate]);
+      localStorage.setItem(EVAL_KEY,JSON.stringify(out.slice(-EVAL_MAX)));
+    }catch(e){}
+  },800);
+}
+function loadEvals(){
+  try{
+    const raw=localStorage.getItem(EVAL_KEY); if(!raw) return 0;
+    for(const [fen,depth,cp,mate] of JSON.parse(raw))
+      evalCache.set(fen,{depth,cp,mate,turn:fen.split(" ")[1]||"w"});
+    return evalCache.size;
+  }catch(e){ return 0; }
+}
+
 function setEval(fen,sc,depth){
   if(!fen||!sc) return;
   const turn=fen.split(" ")[1]||"w", sign=turn==="b"?-1:1, d=depth||0;
@@ -1369,7 +1401,7 @@ function setEval(fen,sc,depth){
   if(prev&&prev.depth>d) return;
   evalCache.set(fen,{depth:d,turn,
     cp:sc.cp!==undefined?sc.cp*sign:null, mate:sc.mate!==undefined?sc.mate*sign:null});
-  evalRev++;
+  evalRev++; saveEvals();
 }
 
 /* white-perspective centipawn score for a node, or null */
@@ -1544,6 +1576,58 @@ window.RT={
   toast, registerView
 };
 
+/* -------- background evaluator: quietly scores whatever has no score yet -------- */
+const BG_DEPTH=12;
+let bgW=null, bgReady=false, bgOn=true, bgFen=null, bgBest=null, bgQueue=[], bgDone=0;
+
+function bgStart(){
+  if(bgW||!bgOn||location.protocol==="file:") return;
+  try{ bgW=new Worker(SF_PATH); }catch(e){ bgOn=false; return; }
+  bgW.onerror=()=>{ bgW=null; bgReady=false; };
+  bgW.onmessage=ev=>bgLine(typeof ev.data==="string"?ev.data:(ev.data&&ev.data.data)||"");
+  bgW.postMessage("uci");
+}
+function bgLine(line){
+  if(!line) return;
+  if(line==="uciok"){ bgW.postMessage("setoption name MultiPV value 1");
+    bgW.postMessage("setoption name Threads value 1"); bgW.postMessage("isready"); return; }
+  if(line==="readyok"){ bgReady=true; bgPump(); return; }
+  if(line.lastIndexOf("info",0)===0){
+    const m=/\bscore (cp|mate) (-?\d+)/.exec(line);
+    if(m) bgBest=m[1]==="cp"?{cp:+m[2]}:{mate:+m[2]};
+    return;
+  }
+  if(line.lastIndexOf("bestmove",0)===0){
+    if(bgFen&&bgBest){
+      const stm=(bgFen.split(" ")[1]==="b")?-1:1;      // -> white perspective
+      setEval(bgFen, bgBest.cp!==undefined?{cp:bgBest.cp*stm}:{mate:bgBest.mate*stm}, BG_DEPTH);
+      bgDone++;
+      renderPreview();                                  // recolour the arrows right away
+      if(bgDone%6===0) updateActiveView();
+    }
+    bgFen=null; bgBest=null; bgPump();
+  }
+}
+/* nearest work first: the replies you are looking at, then the current line, then the rest */
+function bgRefill(){
+  if(!bgOn) return;
+  const want=new Set(), add=n=>{ if(n&&!evalCache.has(n.fen)) want.add(n.fen); };
+  cur.children.forEach(add); add(cur);
+  for(const n of pathTo(cur)) add(n);
+  for(const n of allNodes()) add(n);
+  bgQueue=[...want];
+  bgStart(); bgPump();
+}
+function bgPump(){
+  if(!bgW||!bgReady||bgFen) return;
+  if(sfSearching){ setTimeout(bgPump,400); return; }   // never fight the foreground engine
+  while(bgQueue.length&&evalCache.has(bgQueue[0])) bgQueue.shift();
+  if(!bgQueue.length){ if(bgDone){ updateActiveView(); bgDone=0; } return; }
+  bgFen=bgQueue.shift(); bgBest=null;
+  bgW.postMessage("position fen "+bgFen);
+  bgW.postMessage("go depth "+BG_DEPTH);
+}
+
 /* ---------------------------- boot ---------------------------- */
 const SEED=
   "1. e4 e5 2. Bc4 {[%name Bishop's Opening]} Nf6 {[%name Berlin Defence]} "+
@@ -1583,9 +1667,13 @@ try{ const h=parseInt(localStorage.getItem("repertoire-treeH"),10);
   if(h>120) document.documentElement.style.setProperty("--treeH",h+"px"); }catch(e){}
 try{ const v=localStorage.getItem("repertoire-view"); if(v) activeView=v; }catch(e){}
 try{ if(localStorage.getItem("repertoire-treearrows")==="0"){ treeArrowsOn=false; $("treeArrows").checked=false; } }catch(e){}
+try{ if(localStorage.getItem("repertoire-autoeval")==="0"){ bgOn=false; $("autoEval").checked=false; } }catch(e){}
+const restored=loadEvals();
 renderAll();
 activateView(activeView);
 checkAPI();
+if(restored) toast(restored+" saved evaluations restored");
+setTimeout(bgRefill,600);
 try{ if(localStorage.getItem("repertoire-engine")==="1"){ $("engineOn").checked=true; sfOn=true; startEngine(); } }catch(e){}
 if(!sfOn&&location.protocol==="file:")
   engineNote('Engine off. Stockfish needs an HTTP origin — run <code>./serve.sh</code>, then flip the switch.');
