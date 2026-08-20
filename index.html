@@ -266,6 +266,8 @@ textarea{min-height:92px}
     <div class="spacer"></div>
     <label class="switch sm" title="Show the moves you have prepared from this position. Once Stockfish has scored them, the outline runs green (best) to red (worst).">
       <input type="checkbox" id="treeArrows" checked><span>Tree arrows</span></label>
+    <label class="switch sm" title="Show Stockfish's top moves as blue arrows on the board. Independent of the suggestion list — turn this off and the engine keeps analysing and keeps listing its lines, it just stops drawing on the board.">
+      <input type="checkbox" id="engineArrows" checked><span>Engine arrows</span></label>
     <button class="b sm" id="flip">Flip board <span class="kbd">f</span></button>
     <button class="b sm" id="reset">New study</button>
   </header>
@@ -340,12 +342,15 @@ textarea{min-height:92px}
         <div id="lines"></div>
       </div>
       <div class="panel">
-        <div class="phead"><h2>Library</h2><span class="n" id="libState">local only</span></div>
+        <div class="phead"><h2>Library</h2><span class="n" id="libState">in memory</span></div>
         <div class="io">
-          <div class="row">
+          <div class="row" id="studyRow">
             <input class="t" id="studyName" style="flex:1;min-width:150px" placeholder="Study name" spellcheck="false">
             <button class="b primary" id="saveStudy">Save</button>
             <button class="b" id="saveAsStudy">Save as new</button>
+            <button class="b" id="signOut" title="Sign out — this session keeps working, it just stops saving">Sign out</button>
+          </div>
+          <div class="row" id="toolRow">
             <button class="b" id="copyLink" title="Copy a link to this study and position">Copy link</button>
             <button class="b" id="setLanding" title="Open this study at the current position from now on">Set landing here</button>
           </div>
@@ -974,7 +979,11 @@ function toggleShape(sh){
 }
 let pendingArrow=null;
 let previewNode=null;          // optional single-move override (views may use RT.previewMove)
+/* Two overlays, two switches. Each says only whether to DRAW; neither touches what the engine
+   computes or what the Stockfish panel lists, so you can read the suggestions with a clean
+   board, or watch the arrows with the panel ignored. */
 let treeArrowsOn=true;         // draw the moves you have prepared from this position
+let engineArrowsOn=true;       // draw Stockfish's top moves
 
 function renderPreview(){
   const layer=$("previewLayer"); if(!layer) return;
@@ -1151,6 +1160,11 @@ $("autoEval").addEventListener("change",e=>{
   try{ localStorage.setItem("repertoire-autoeval",bgOn?"1":"0"); }catch(err){}
   if(bgOn) bgRefill();
   else { bgQueue=[]; if(bgW){ bgW.terminate(); bgW=null; bgReady=false; bgFen=null; } }
+});
+$("engineArrows").addEventListener("change",e=>{
+  engineArrowsOn=e.target.checked;
+  try{ localStorage.setItem("repertoire-enginearrows",engineArrowsOn?"1":"0"); }catch(err){}
+  renderEngineArrows();        // board only; the suggestion list is untouched
 });
 $("treeArrows").addEventListener("change",e=>{
   treeArrowsOn=e.target.checked;
@@ -1371,7 +1385,10 @@ function renderEngine(){
 function renderEngineArrows(){
   const layer=$("engineLayer"); if(!layer) return;
   layer.textContent="";
-  if(!sfOn) return;
+  /* sfOn is "is there anything to draw", engineArrowsOn is "do you want it drawn". The engine
+     being off is an absence of data, not the switch being off — leave the switch alone so it
+     still reads the way you left it when the engine comes back. */
+  if(!sfOn||!engineArrowsOn) return;
   const shades=[{o:0.95,w:0.16},{o:0.6,w:0.12},{o:0.42,w:0.10}];
   for(let i=SF_MULTIPV;i>=1;i--){
     const e=sfPV[i]; if(!e||!e.pv.length) continue;
@@ -1403,7 +1420,20 @@ function serialize(){
   return JSON.stringify({v:1,start:root.startFEN||START,landing:root.landing||[],
     tree:walk(root),path:pathTo(cur).map(n=>n.san)});
 }
-function save(){ try{ localStorage.setItem("repertoire-table-v3",serialize()); }catch(e){} }
+/* Signed out, nothing is written down. The board still works — every edit lives in memory and
+   goes away on refresh. Signed in, localStorage is a local working copy of the open study, so a
+   reload picks up where you were without a round trip. Cosmetic preferences (view, panel sizes,
+   the engine toggle, the eval cache) are NOT study content and stay local either way. */
+function save(){ if(!authed) return; try{ localStorage.setItem("repertoire-table-v3",serialize()); }catch(e){} }
+function forgetLocalStudy(){
+  try{
+    localStorage.removeItem("repertoire-table-v3");
+    for(let i=localStorage.length-1;i>=0;i--){
+      const k=localStorage.key(i);
+      if(k&&k.startsWith("repertoire-resume-")) localStorage.removeItem(k);
+    }
+  }catch(e){}
+}
 function hydrate(d){
   uid=1;
   const build=(o,parent)=>{
@@ -1416,6 +1446,7 @@ function hydrate(d){
   return true;
 }
 function load(){
+  if(!authed) return false;
   let raw; try{ raw=localStorage.getItem("repertoire-table-v3"); }catch(e){ return false; }
   if(!raw) return false;
   try{ return hydrate(JSON.parse(raw)); }catch(e){ return false; }
@@ -1461,7 +1492,7 @@ function walkTo(pathStr){
 async function applyHash(){
   const q=parseHash(); if(!q) return;
   if(q.s&&+q.s!==studyId){
-    if(!apiUp){ toast("That link points at a saved study — start the server to open it"); }
+    if(!authed){ toast("That link points at a saved study, which this session cannot reach"); }
     else if(!await openStudy(+q.s,true)) return;
   }
   if(q.p&&!walkTo(q.p)) toast("Link points at a move that is not in this study");
@@ -1472,10 +1503,12 @@ window.addEventListener("hashchange",()=>{ if(!hashLock) applyHash(); });
 const resumeKey=id=>"repertoire-resume-"+(id||"local");
 let resumeT;
 function saveResume(){
+  if(!authed) return;
   try{ localStorage.setItem(resumeKey(studyId),
     JSON.stringify(pathTo(cur).map(n=>n.san))); }catch(e){}
 }
 function loadResume(){
+  if(!authed) return null;
   try{ const raw=localStorage.getItem(resumeKey(studyId));
     const p=raw?JSON.parse(raw):null;
     return Array.isArray(p)&&p.length?p:null; }catch(e){ return null; }
@@ -1504,16 +1537,28 @@ function renderLanding(){
   const clr=document.createElement("button");
   clr.className="b"; clr.style.padding="0 6px"; clr.style.fontSize="11px"; clr.textContent="clear";
   clr.onclick=()=>{ root.landing=[]; renderLanding(); save();
-    if(studyId&&apiUp) saveStudy(false); else toast("Landing cleared"); };
+    if(studyId&&authed) saveStudy(false); else toast("Landing cleared"); };
   el.append(clr);
 }
 
 /* ---------------------------- library (server-backed) ---------------------------- */
-let apiUp=false, studyId=null;
-const api=(path,opts)=>fetch("/api"+path,Object.assign({headers:{"Content-Type":"application/json"}},opts))
-  .then(async r=>{ if(r.status===204) return null;
+/* apiUp: a server is answering.  authed: it knows who we are and will accept writes.
+   They are separate — the app is fully usable in the gap between them, just amnesiac. */
+let apiUp=false, authed=false, authUser=null, studyId=null;
+const api=(path,opts)=>fetch("/api"+path,Object.assign({credentials:"same-origin",
+    headers:{"Content-Type":"application/json"}},opts))
+  .then(async r=>{
+    /* The session can lapse under us — a 30-day cookie outlives plenty of open tabs. Fold that
+       back into the UI here rather than letting every caller discover it separately. */
+    if(r.status===401&&authed){ authed=false; authUser=null; renderAuth();
+      toast("Session expired — sign in again at /login to keep saving"); }
+    if(r.status===204) return null;
     const body=await r.text();
-    if(!r.ok) throw new Error((body&&JSON.parse(body).detail)||r.status);
+    /* Not every error comes back as JSON — a framework-level 400 or a proxy's 502 is HTML or
+       plain text, and parsing that blind turns a readable failure into "Unexpected token '<'". */
+    if(!r.ok){ let detail=null;
+      try{ detail=body?JSON.parse(body).detail:null; }catch(e){}
+      throw new Error(detail||("Server error "+r.status)); }
     return body?JSON.parse(body):null; });
 
 function studyPayload(){
@@ -1524,12 +1569,47 @@ function studyPayload(){
     start_fen:doc.start, tree:doc.tree, pgn:exportPGN()};
 }
 async function checkAPI(){
-  try{ const h=await api("/health"); apiUp=!!(h&&h.ok);
-    $("libState").textContent=apiUp?"saved on server":"local only";
-    if(apiUp){ $("libNote").textContent=""; await refreshStudies(); }
-  }catch(e){ apiUp=false; $("libState").textContent="local only";
-    $("libNote").innerHTML='Studies live in this browser only. Run <code>./serve.sh</code> (or <code>docker compose up</code>) to keep a library on the server.'; }
-  $("saveStudy").disabled=!apiUp; $("saveAsStudy").disabled=!apiUp;
+  try{ const h=await api("/health"); apiUp=!!(h&&h.ok); }
+  catch(e){ apiUp=false; }
+
+  if(apiUp){
+    /* /api/me is 404 on the old Python backend, which throws here and leaves authed false —
+       exactly the right answer: that server has no accounts, so nothing can be saved to it. */
+    try{ const me=await api("/me"); authed=!!(me&&me.authed); authUser=(me&&me.user)||null; }
+    catch(e){ authed=false; authUser=null; }
+  } else { authed=false; authUser=null; }
+
+  /* Signed out means nothing is stored — however you got here. Signing out through /logout is a
+     server redirect that never runs signOut() below, and a cookie can simply expire, so the
+     invariant is enforced on every load rather than only on the button. */
+  if(!authed) forgetLocalStudy();
+
+  renderAuth();
+  if(authed) await refreshStudies();
+}
+/* One place decides what the Library panel looks like.
+   Signed out there is no prompt, no hint and no mention of an account — the panel simply says
+   the session is in memory. Sign-in lives at /login and is not advertised from here. */
+function renderAuth(){
+  const signedIn=apiUp&&authed;
+  $("studyRow").style.display=signedIn?"":"none";
+  $("studyList").style.display=signedIn?"":"none";
+  $("landingNote").style.display=signedIn?"":"none";
+  $("saveStudy").disabled=!signedIn; $("saveAsStudy").disabled=!signedIn;
+
+  $("libState").textContent=signedIn?("signed in as "+(authUser||"you")):"in memory";
+  $("libNote").textContent=signedIn?""
+    :"This session lives in memory. Studies you build here are gone on refresh.";
+  if(!signedIn) $("studyList").textContent="";
+}
+async function signOut(){
+  try{ await api("/logout",{method:"POST"}); }catch(e){}
+  authed=false; authUser=null; studyId=null;
+  /* The board on screen stays exactly as it is — you can keep working, it just stops being
+     written down anywhere. Drop the local copy so the next visitor to this browser gets none of it. */
+  forgetLocalStudy();
+  renderAuth(); syncHash();
+  toast("Signed out — changes now stay in memory only");
 }
 async function refreshStudies(){
   const list=$("studyList"); list.textContent="";
@@ -1569,7 +1649,7 @@ async function openStudy(id,fromLink){
   }catch(e){ toast("Could not open: "+e.message); return false; }
 }
 async function saveStudy(asNew){
-  if(!apiUp){ toast("No server — run ./serve.sh to save to the library"); return; }
+  if(!authed){ toast("This session is in memory only — nothing to save to"); return; }
   const body=studyPayload();
   try{
     const rec=(studyId&&!asNew)
@@ -1583,17 +1663,18 @@ async function saveStudy(asNew){
 $("setLanding").onclick=()=>{
   root.landing=pathTo(cur).map(n=>n.san);
   renderLanding(); save();
-  if(studyId&&apiUp){ saveStudy(false); toast("Landing position saved with the study"); }
-  else toast(apiUp?"Landing set — press Save to store it with the study":"Landing set for this browser");
+  if(studyId&&authed){ saveStudy(false); toast("Landing position saved with the study"); }
+  else toast(authed?"Landing set — press Save to store it with the study":"Landing set for this session only");
 };
 $("copyLink").onclick=()=>{
   syncHash();
   const url=location.origin+location.pathname+location.search+currentHash();
-  if(!studyId&&apiUp) toast("Save the study first so the link can find it");
+  if(!studyId&&authed) toast("Save the study first so the link can find it");
   copy(url,"Link copied");
 };
 $("saveStudy").onclick=()=>saveStudy(false);
 $("saveAsStudy").onclick=()=>saveStudy(true);
+$("signOut").onclick=signOut;
 
 /* ---------------------------- view API (for views/*.js) ---------------------------- */
 const evalCache=new Map();          // fen -> {depth,cp,mate,turn}  (score from side to move)
@@ -1894,12 +1975,12 @@ const SEED=
   "(4... Nxe4 5. Qxd4 {[%name Queen Comes Out to Play]}) "+
   "5. O-O Nxe4 6. Re1 d5 7. Bxd5 Qxd5 8. Nc3 {[%name The Trap Springs]} Qa5 9. Nxe4 Be6 "+
   "10. Neg5 O-O-O 11. Nxe6 fxe6 12. Rxe6 {[%name Rook Collects the Rent]} *";
+/* Always open on the seed. Whether there is a saved local copy to put over the top of it depends
+   on being signed in, and that is only known once /api/me answers — see the boot() below. */
 newStudy(START);
-if(!load()){
-  importPGN(SEED,false);
-  cur=root;
-  while(cur.children.length) cur=cur.children[0];   // end of the main line
-}
+importPGN(SEED,false);
+cur=root;
+while(cur.children.length) cur=cur.children[0];   // end of the main line
 $("studyName").value="Urusov Gambit";
 buildTabs();
 initGrip(); initRailGrip();
@@ -1908,12 +1989,22 @@ try{ const h=parseInt(localStorage.getItem("repertoire-treeH"),10);
   if(h>120) document.documentElement.style.setProperty("--treeH",h+"px"); }catch(e){}
 try{ const v=localStorage.getItem("repertoire-view"); if(v) activeView=v; }catch(e){}
 try{ if(localStorage.getItem("repertoire-treearrows")==="0"){ treeArrowsOn=false; $("treeArrows").checked=false; } }catch(e){}
+try{ if(localStorage.getItem("repertoire-enginearrows")==="0"){ engineArrowsOn=false; $("engineArrows").checked=false; } }catch(e){}
 try{ if(localStorage.getItem("repertoire-autoeval")==="0"){ bgOn=false; $("autoEval").checked=false; } }catch(e){}
 const restored=loadEvals();
-if(!parseHash()) goToStart(); else renderAll();
+renderAll();
 renderLanding();
 activateView(activeView);
-checkAPI().then(applyHash);
+/* Auth first, then restore: load() and goToStart() both read localStorage, and signed out they
+   must find nothing. Everything above this point is the in-memory seed, so there is something on
+   screen the whole time rather than a blank board waiting on a round trip. */
+(async function boot(){
+  await checkAPI();
+  if(authed) load();
+  if(!parseHash()) goToStart(); else renderAll();
+  renderLanding();
+  await applyHash();
+})();
 if(restored) toast(restored+" saved evaluations restored");
 setTimeout(bgRefill,600);
 try{ if(localStorage.getItem("repertoire-engine")==="1"){ $("engineOn").checked=true; sfOn=true; startEngine(); } }catch(e){}

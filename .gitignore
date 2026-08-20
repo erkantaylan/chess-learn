@@ -6,3 +6,9 @@ data/
 .DS_Store
 .venv/
 venv/
+
+# .NET
+[Bb]in/
+[Oo]bj/
+*.user
+.gstack/

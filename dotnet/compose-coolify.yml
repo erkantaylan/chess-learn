@@ -1,0 +1,65 @@
+# Coolify deployment. Traefik fronts this and terminates TLS, so the app is NOT published on a
+# host port — `expose` only. That is also what makes clearing KnownIPNetworks/KnownProxies in
+# RepertoireProgram safe: the platform proxy is the only thing that can reach the container.
+#
+# Every value below that is a secret or environment-specific is declared WITHOUT a default and
+# WITHOUT a literal, and set in Coolify's "Environment Variables" tab. Mercury's rule, and the
+# reasoning is worth repeating: a committed literal cannot be overridden from the UI, and a
+# default silently masks a value you forgot to set.
+#
+# Set in Coolify before the first deploy:
+#   AUTH_USERNAME        the one account's username
+#   AUTH_PASSWORD        its password           (mark locked/secret)
+#   POSTGRES_PASSWORD    database password      (mark locked/secret)
+name: repertoire
+
+services:
+
+  app:
+    image: repertoire.api
+    restart: unless-stopped
+    expose:
+      - 8080
+    build:
+      # Repo root: the image copies index.html, login.html, views/ and engine/ too.
+      context: ..
+      dockerfile: dotnet/src/Api/Repertoire.Api/Dockerfile
+    depends_on:
+      db-repertoire:
+        condition: service_healthy
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_HTTP_PORTS=8080
+      - 'ConnectionStrings__cs-repertoire=Host=db-repertoire;Username=postgres;Password=${POSTGRES_PASSWORD};Database=repertoire;'
+      # The single account. The app refuses to boot outside Development without these, so a
+      # missing value fails the deploy loudly instead of serving a library nobody can save to.
+      - 'Auth__Username=${AUTH_USERNAME}'
+      - 'Auth__Password=${AUTH_PASSWORD}'
+    # TCP probe on Kestrel: the aspnet images ship bash but neither curl nor wget. Generous
+    # timeout/retries on purpose — Traefik drops unhealthy containers from routing (502 "no
+    # available server"), and a briefly CPU-starved host must not flap a working app out of the
+    # pool. start_period covers the EF migration on first boot.
+    healthcheck:
+      test: [ 'CMD-SHELL', "bash -c 'echo > /dev/tcp/localhost/8080'" ]
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 60s
+
+  db-repertoire:
+    image: postgres:17.6
+    restart: always
+    environment:
+      - POSTGRES_USER=postgres
+      - 'POSTGRES_PASSWORD=${POSTGRES_PASSWORD}'
+      - POSTGRES_DB=repertoire
+    volumes:
+      - volume_repertoire:/var/lib/postgresql/data
+    healthcheck:
+      test: [ 'CMD-SHELL', 'pg_isready -h localhost -U $$POSTGRES_USER -d $$POSTGRES_DB' ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  volume_repertoire:

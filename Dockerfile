@@ -14,6 +14,7 @@ RUN pip install --no-cache-dir -r /app/server/requirements.txt
 
 COPY server/ /app/server/
 COPY engine/ /app/engine/
+COPY views/ /app/views/
 COPY index.html /app/index.html
 
 RUN mkdir -p /app/data

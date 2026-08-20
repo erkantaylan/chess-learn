@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Sign in — Repertoire Table</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,800&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root{
+  --parchment:#F5F0E6; --parchment-2:#EDE6D8; --card:#FBF8F1;
+  --ink:#1C1813; --ink-2:#4A4235; --ink-3:#7B7060;
+  --line:#DDD3C0;
+  --brass:#A5761B; --brass-soft:#EFE0BC;
+  --claret:#8E3A32;
+}
+@media(prefers-color-scheme:dark){
+  :root{
+    --parchment:#15130F; --parchment-2:#1F1B15; --card:#211D17;
+    --ink:#F0E9DB; --ink-2:#C0B6A2; --ink-3:#8B8172;
+    --line:#332D24;
+    --brass:#D6A63F; --brass-soft:#42340F;
+    --claret:#C86B60;
+  }
+}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;
+  background:var(--parchment);color:var(--ink);
+  font-family:"IBM Plex Sans",system-ui,sans-serif;font-size:15px;line-height:1.5;
+  -webkit-font-smoothing:antialiased}
+.card{width:100%;max-width:340px;background:var(--card);border:1px solid var(--line);
+  border-radius:3px;padding:26px 24px 22px}
+h1{font-family:Fraunces,Georgia,serif;font-weight:800;font-size:19px;line-height:1.2;
+  margin:0 0 2px;letter-spacing:-.01em}
+h1 .k{color:var(--brass)}
+p.sub{margin:0 0 20px;font-size:12.5px;color:var(--ink-3)}
+label{display:block;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--ink-3);margin:0 0 5px}
+input{width:100%;padding:8px 9px;margin:0 0 14px;background:var(--parchment);
+  border:1px solid var(--line);border-radius:2px;color:var(--ink);
+  font-family:inherit;font-size:14px}
+input:focus{outline:none;border-color:var(--brass);box-shadow:0 0 0 2px var(--brass-soft)}
+button{width:100%;padding:9px 12px;border:1px solid var(--brass);border-radius:2px;
+  background:var(--brass);color:var(--card);font-family:inherit;font-size:13.5px;
+  font-weight:600;cursor:pointer}
+button:hover{filter:brightness(1.07)}
+button:disabled{opacity:.6;cursor:default}
+.err{margin:0 0 14px;padding:7px 9px;border-left:2px solid var(--claret);
+  background:var(--parchment-2);color:var(--claret);font-size:12.5px}
+.err[hidden]{display:none}
+.back{display:block;margin:16px 0 0;font-size:12px;color:var(--ink-3);text-decoration:none}
+.back:hover{color:var(--brass)}
+</style>
+</head>
+<body>
+<main class="card">
+  <h1>Repertoire <span class="k">Table</span></h1>
+  <p class="sub">Sign in to keep a library on the server.</p>
+
+  <p class="err" id="err" hidden role="alert"></p>
+
+  <form id="form" novalidate>
+    <label for="username">Username</label>
+    <input id="username" name="username" autocomplete="username" autocapitalize="off"
+           autocorrect="off" spellcheck="false" required autofocus>
+
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" required>
+
+    <button id="submit" type="submit">Sign in</button>
+  </form>
+
+  <a class="back" href="/">← Back to the board</a>
+</main>
+
+<script>
+const form=document.getElementById("form"),
+      err=document.getElementById("err"),
+      submit=document.getElementById("submit");
+
+function fail(msg){ err.textContent=msg; err.hidden=false; submit.disabled=false; submit.textContent="Sign in"; }
+
+/* Where to go after signing in. Only ever a path on this origin — an absolute URL here would
+   turn the login page into an open redirect for anyone who can get you to click a link. */
+function destination(){
+  const next=new URLSearchParams(location.search).get("next");
+  return (next&&next.startsWith("/")&&!next.startsWith("//")) ? next : "/";
+}
+
+form.addEventListener("submit",async e=>{
+  e.preventDefault();
+  err.hidden=true;
+  submit.disabled=true; submit.textContent="Signing in…";
+  try{
+    const r=await fetch("/api/login",{
+      method:"POST", credentials:"same-origin",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({username:document.getElementById("username").value.trim(),
+                           password:document.getElementById("password").value})});
+    const body=await r.text();
+    if(!r.ok){
+      /* A 503 (no account configured) or a proxy error is not JSON — read what we can. */
+      let detail=null; try{ detail=body?JSON.parse(body).detail:null; }catch(e){}
+      return fail(detail||("Sign-in failed ("+r.status+")"));
+    }
+    location.replace(destination());
+  }catch(e){ fail("Could not reach the server."); }
+});
+
+/* Already signed in? Nothing to do here. */
+fetch("/api/me",{credentials:"same-origin"})
+  .then(r=>r.ok?r.json():null)
+  .then(me=>{ if(me&&me.authed) location.replace(destination()); })
+  .catch(()=>{});
+</script>
+</body>
+</html>

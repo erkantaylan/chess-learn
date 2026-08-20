@@ -1,10 +1,17 @@
 # Repertoire Table API
 
-Base URL: `http://localhost:8000`. Everything under `/api`. All requests and
-responses are JSON (`Content-Type: application/json`). The same process serves
-`index.html` and `engine/`, so the frontend can use **relative** URLs
-(`fetch('/api/studies')`) — no CORS needed in normal use. (Permissive CORS is
-enabled for `localhost` / `127.0.0.1` origins anyway, for a separate dev server.)
+Everything under `/api`. All requests and responses are JSON
+(`Content-Type: application/json`). The same process serves `index.html`,
+`views/` and `engine/`, so the frontend uses **relative** URLs
+(`fetch('/api/studies')`) — no CORS involved, and the session cookie below only
+works same-origin anyway.
+
+Two backends implement this contract:
+
+| | base URL | store | accounts |
+|---|---|---|---|
+| .NET (`dotnet/`) | Aspire assigns the port; `http://localhost:5080` under compose | PostgreSQL, `tree` in a `jsonb` column | yes — the whole API needs a session |
+| Python (`server/`, being retired) | `http://localhost:8000` | SQLite, `tree` in a TEXT column | none — wide open |
 
 Timestamps are ISO-8601 UTC with a `Z` suffix, e.g. `2026-08-19T16:59:53Z`.
 
@@ -25,12 +32,74 @@ Timestamps are ISO-8601 UTC with a `Z` suffix, e.g. `2026-08-19T16:59:53Z`.
 - `id` — integer, server-assigned, never sent by the client.
 - `name` — non-empty string, max 200 chars.
 - `start_fen` — string, may be `""`.
-- `tree` — **arbitrary JSON**, stored verbatim. Send the same object the app
-  keeps in `localStorage` under `repertoire-table`, or just its `tree` member —
-  the server does not validate or rewrite it, it round-trips exactly.
+- `tree` — **arbitrary JSON**, stored opaquely. Send the same object the app
+  keeps in `localStorage` under `repertoire-table-v3`, or just its `tree` member —
+  the server does not validate or rewrite it.
   The only thing the server reads out of it is `children` (recursively) to
   compute `move_count` for the list endpoint.
+  On the .NET backend it lands in a Postgres `jsonb` column, so what comes back
+  is **semantically** identical but not byte-identical: key order is not
+  preserved, whitespace is dropped and duplicate keys collapse. Nothing in the
+  app reads the tree positionally, so this does not matter — but it is queryable
+  now, which the SQLite TEXT column never was:
+
+  ```sql
+  SELECT name, tree->'children'->0->>'san' AS first_move FROM studies;
+  ```
+
+  Move trees nest two JSON levels per ply, so the .NET backend raises the
+  serializer depth limit to 512 (~255 plies). The stock limit of 64 rejects a
+  study around move 32.
 - `pgn` — string, may be `""`.
+
+---
+
+## Authentication
+
+There is exactly one account — no registration, no users table, no `user_id` on
+studies: the whole database belongs to it. Credentials come from configuration
+(`Auth__Username` / `Auth__Password` as env vars, or user-secrets locally), and
+the app refuses to boot outside Development if they are unset.
+
+Everything under `/api/studies` requires a session. `/api/health`, `/api/me`,
+`/api/login` and `/api/logout` are anonymous, as is the frontend itself — the
+app is fully usable signed out, it just has nowhere to save.
+
+### `POST /api/login`
+
+```
+curl -s -c jar -X POST http://localhost:5080/api/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"erkan","password":"..."}'
+```
+```json
+{"authed": true, "user": "erkan"}
+```
+
+Sets an HttpOnly session cookie (`repertoire.auth`), 30 days, sliding, `Secure`
+whenever the request arrived over HTTPS. Wrong credentials give **401** with
+`{"detail": "Wrong username or password"}`; both the username and password legs
+are compared in fixed time.
+
+### `POST /api/logout`
+
+Clears the cookie. Responds `{"authed": false, "user": null}`.
+
+### `GET /api/me`
+
+```json
+{"authed": true, "user": "erkan"}
+```
+
+Anonymous, so the frontend can ask "am I signed in?" on load. **404 on the
+Python backend**, which has no accounts — the frontend reads that as "not signed
+in", which is the right answer for a server that cannot authenticate anyone.
+
+### Unauthenticated requests
+
+Anything under `/api/studies` without a valid cookie returns **401** with an
+empty body — not a redirect to a login page. A session that lapses mid-use
+surfaces the same way, and the frontend folds it back into the signed-out state.
 
 ---
 

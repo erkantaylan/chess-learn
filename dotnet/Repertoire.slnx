@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/" />
+  <Folder Name="/src/Api/">
+    <Project Path="src/Api/Repertoire.Api/Repertoire.Api.csproj" />
+  </Folder>
+  <Folder Name="/src/Aspire/">
+    <Project Path="src/Aspire/Repertoire.AppHost/Repertoire.AppHost.csproj" />
+    <Project Path="src/Aspire/Repertoire.ServiceDefaults/Repertoire.ServiceDefaults.csproj" />
+  </Folder>
+</Solution>

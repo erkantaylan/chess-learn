@@ -16,19 +16,64 @@ Serve the folder over HTTP:
 
 Opening `index.html` directly still works — everything except the engine.
 
+## Sign in, or don't
+
+There is one account. Signed in, studies save to the server and `localStorage`
+keeps a local working copy, so a reload puts you back where you were. Signed
+out, the app works exactly the same — you can open a study, branch it, name
+lines, run the engine — but **nothing is written down**: every change lives in
+memory and is gone on refresh. Cosmetic preferences (chosen view, panel sizes,
+the engine toggle, the cached evaluations) are not study content and stay local
+either way.
+
+Credentials come from configuration, never the repo:
+
+    Auth__Username=erkan Auth__Password=... aspire run
+
+Locally `dotnet/src/Api/Repertoire.Api/appsettings.Development.json` carries a
+throwaway pair so the thing runs out of the box. Anywhere else the app refuses
+to boot without them.
+
 ## Backend / Docker
 
-There is an optional backend (`server/`, FastAPI + SQLite) that serves the app
-*and* a small JSON API, so studies can live on a server instead of only in
-browser `localStorage`. See `docs/API.md` for the endpoint contract.
+Two backends implement the same JSON API (`docs/API.md`):
 
-Either way, the server sets `Cross-Origin-Opener-Policy: same-origin` and
+- **`dotnet/` — ASP.NET Core + PostgreSQL. The one being built.** Serves the app
+  and the API on one port, with the move tree in a `jsonb` column and cookie
+  auth for the single account.
+- **`server/` — FastAPI + SQLite. Being retired.** No accounts: its `/api` is
+  wide open, and the frontend now treats a server that cannot authenticate
+  anyone as a server it cannot save to. The app still runs there, in memory.
+
+### The .NET stack
+
+Local development runs under [Aspire](https://aka.ms/dotnet/aspire), which
+supervises the API and a PostgreSQL container together and gives you a dashboard
+with traces, structured logs and metrics over OTLP:
+
+    cd dotnet/src/Aspire/Repertoire.AppHost
+    aspire run
+
+Ports are all dynamic — take the entry points from the dashboard it prints. The
+Postgres container is `ContainerLifetime.Persistent`, so your studies survive an
+AppHost restart. (That relies on the `UserSecretsId` in the AppHost csproj; the
+comment there explains why removing it silently eats the database.)
+
+Or without Aspire:
+
+    docker compose -f dotnet/docker-compose.yml up --build     # http://localhost:5080
+
+EF migrations apply on startup, so a fresh Postgres comes up ready. `dotnet-ef`
+is pinned in `dotnet/.config/dotnet-tools.json` — `dotnet tool restore` once,
+then `dotnet ef migrations add <Name>` from `dotnet/src/Api/Repertoire.Api`.
+
+Both servers set `Cross-Origin-Opener-Policy: same-origin` and
 `Cross-Origin-Embedder-Policy: require-corp` (so `SharedArrayBuffer` is
-available for a future multi-threaded Stockfish), serves `.wasm` as
-`application/wasm`, and disables caching so an edited `index.html` is never
+available for a future multi-threaded Stockfish), serve `.wasm` as
+`application/wasm`, and disable caching so an edited `index.html` is never
 stale.
 
-### Locally
+### The Python stack (retiring)
 
     python3 -m venv .venv
     .venv/bin/pip install -r server/requirements.txt
