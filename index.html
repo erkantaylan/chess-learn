@@ -22,7 +22,6 @@
   --railW:400px;             /* right column width — drag the grip between columns */
   /* arrows sit on a tan board, so they get saturated hues + a light casing */
   --arrow-tree:#5B21B6;      /* your prepared moves — violet   */
-  --arrow-engine:#0369A1;    /* Stockfish suggestions — blue   */
   --arrow-casing:rgba(255,255,255,.92);
   --shape-G:#15803D; --shape-R:#DC2626; --shape-Y:#D97706; --shape-B:#1D4ED8;
   --q-good:#15803D; --q-bad:#DC2626;   /* move-quality outline: best -> losing */
@@ -39,7 +38,7 @@
   --piece-w:#F7F2E6; --piece-b:#1A1611; --piece-edge:#000;
   --shadow:0 1px 0 rgba(0,0,0,.3), 0 14px 34px -20px #000;
   --on-brass:#1A1611;
-  --arrow-tree:#C4B5FD; --arrow-engine:#7DD3FC;
+  --arrow-tree:#C4B5FD;
   --arrow-casing:rgba(10,8,5,.85);
   --shape-G:#4ADE80; --shape-R:#FB7185; --shape-Y:#FBBF24; --shape-B:#93C5FD;
   --q-good:#4ADE80; --q-bad:#FB7185;
@@ -56,7 +55,7 @@
   --piece-w:#F7F2E6; --piece-b:#1A1611; --piece-edge:#000;
   --shadow:0 1px 0 rgba(0,0,0,.3), 0 14px 34px -20px #000;
   --on-brass:#1A1611;
-  --arrow-tree:#C4B5FD; --arrow-engine:#7DD3FC;
+  --arrow-tree:#C4B5FD;
   --arrow-casing:rgba(10,8,5,.85);
   --shape-G:#4ADE80; --shape-R:#FB7185; --shape-Y:#FBBF24; --shape-B:#93C5FD;
   --q-good:#4ADE80; --q-bad:#FB7185;
@@ -106,6 +105,9 @@ button.b.sm{padding:1px 8px;font-size:11.5px}
   border:1px solid var(--sq-dark);overflow:hidden}
 .evalbar .fill{position:absolute;left:0;right:0;bottom:0;height:50%;background:var(--piece-w);
   transition:height .25s ease}
+/* Flipped board: White is now at the top, so White's slice of the bar has to grow downwards
+   from the top edge — otherwise the white block sits next to the black king. */
+.evalbar.flip .fill{bottom:auto;top:0}
 .evalbar.off{opacity:.25}
 .evalbar .mid{position:absolute;left:0;right:0;top:50%;height:1px;background:var(--brass);opacity:.7}
 
@@ -272,7 +274,7 @@ textarea{min-height:92px}
     <div class="spacer"></div>
     <label class="switch sm" title="Show the moves you have prepared from this position. Once Stockfish has scored them, the outline runs green (best) to red (worst).">
       <input type="checkbox" id="treeArrows" checked><span>Tree arrows</span></label>
-    <label class="switch sm" title="Show Stockfish's top moves as blue arrows on the board. Independent of the suggestion list — turn this off and the engine keeps analysing and keeps listing its lines, it just stops drawing on the board.">
+    <label class="switch sm" title="Show Stockfish's top moves as arrows on the board, shaded from white to black by the side each line favours. Independent of the suggestion list — turn this off and the engine keeps analysing and keeps listing its lines, it just stops drawing on the board.">
       <input type="checkbox" id="engineArrows" checked><span>Engine arrows</span></label>
     <button class="b sm" id="flip">Flip board <span class="kbd">f</span></button>
     <button class="b sm" id="reset">New study</button>
@@ -820,9 +822,11 @@ function renderBoard(){
   }
   renderPieces(s,animated);
   lastBoardNode=cur; lastBoardFlip=flipped;
-  const eng=makeOverlay(); eng.id="engineLayer"; boardEl.appendChild(eng);
+  /* Bottom to top: the wide arrows you drew by hand, then your prepared moves, then the
+     engine's — narrowest and last, so nothing ever buries them. */
   const shp=makeOverlay(); shp.id="shapeLayer"; boardEl.appendChild(shp);
   const prv=makeOverlay(); prv.id="previewLayer"; boardEl.appendChild(prv);
+  const eng=makeOverlay(); eng.id="engineLayer"; boardEl.appendChild(eng);
   renderShapes(); renderEngineArrows(); renderPreview();
   $("turnDot").className="dot"+(s.turn==="b"?" b":"");
   $("turnTxt").textContent=(s.turn==="w"?"White":"Black")+" to move · move "+s.full;
@@ -925,12 +929,35 @@ function makeOverlay(){
   svg.setAttribute("preserveAspectRatio","none");
   return svg;
 }
+/* Arrows come from three places and routinely land on the same two squares — Stockfish likes
+   the move you prepared, and you drew an arrow on it yourself. So they are sized in nesting
+   bands rather than all drawn at one width: the arrows you draw by hand are the widest and sit
+   at the bottom, your prepared moves are narrower and sit on top of them, and the engine's are
+   narrowest and sit on top of everything. Overlapping arrows then read as concentric stripes —
+   you can see all three at once instead of only whichever was drawn last. Order matters as
+   much as size: renderBoard() stacks the layers hand → tree → engine to match. */
+const ARROW_W={
+  hand:0.25,                     // right-drag arrows, and the drag preview
+  treeMain:0.16, treeAlt:0.12,   // your first prepared move vs the rest
+  engine:[0.095,0.08,0.065]      // by MultiPV rank, before the decisiveness scaling below
+};
+/* The engine also thins out as the position levels off: a line that wins on the spot draws at
+   full width, a line that keeps things dead equal draws barely there. So the board says how
+   much the suggestion is worth, not just what it is. `pct` is the win percentage from White's
+   side, so distance from 50 is how decisive the line is, either way. */
+function engineArrowW(rank,pct){
+  const mag=Math.min(1,Math.abs(pct-50)/50);
+  return (ARROW_W.engine[rank]||ARROW_W.engine[2])*(0.55+0.45*mag);
+}
 function drawArrow(svg,from,to,color,opacity,width,casing){
   const a=sqCenter(from), b=sqCenter(to);
   const dx=b.x-a.x, dy=b.y-a.y, len=Math.hypot(dx,dy);
   if(!len) return;
   const ux=dx/len, uy=dy/len;
-  const head=0.34, w=width||0.14;
+  const w=width||ARROW_W.hand;
+  /* The head is sized off the shaft for the same reason the casing is: a fixed head made every
+     arrow end in the same big triangle, so three stacked arrows still finished as one blob. */
+  const head=0.20+w*0.9;
   const startGap=0.28, endGap=0.16;
   const sx=a.x+ux*startGap, sy=a.y+uy*startGap;
   const ex=b.x-ux*endGap,   ey=b.y-uy*endGap;
@@ -952,7 +979,10 @@ function drawArrow(svg,from,to,color,opacity,width,casing){
     g.appendChild(line); g.appendChild(tri);
   };
   const cas=casing||"var(--arrow-casing)";
-  mk(cas,0.085,cas);                                      // contrast casing, underneath
+  /* The casing scales with the arrow instead of being a fixed 0.085. A fixed one is a third of
+     a hand arrow's width and would spill over the tree arrow underneath it, closing the gaps
+     the width bands exist to open. */
+  mk(cas,Math.max(0.045,w*0.45),cas);                     // contrast casing, underneath
   mk(color,0,color);
   svg.appendChild(g);
 }
@@ -971,11 +1001,11 @@ function renderShapes(){
   layer.textContent="";
   for(const sh of (cur.shapes||[])){
     const col=SHAPE_COLORS[sh.color]||SHAPE_COLORS.G;
-    if(sh.to) drawArrow(layer,sh.from,sh.to,col);
+    if(sh.to) drawArrow(layer,sh.from,sh.to,col,0.9,ARROW_W.hand);
     else drawCircle(layer,sh.from,col);
   }
   if(pendingArrow&&pendingArrow.to&&pendingArrow.to!==pendingArrow.from)
-    drawArrow(layer,pendingArrow.from,pendingArrow.to,SHAPE_COLORS[pendingArrow.color],0.5);
+    drawArrow(layer,pendingArrow.from,pendingArrow.to,SHAPE_COLORS[pendingArrow.color],0.5,ARROW_W.hand);
 }
 function toggleShape(sh){
   cur.shapes=cur.shapes||[];
@@ -1003,7 +1033,8 @@ function renderPreview(){
   if(!n.move) return;
   // the move belongs to the position BEFORE it; say so when the board is elsewhere
   const inContext=n.parent&&n.parent.fen===cur.fen;
-  drawArrow(layer,n.move.from,n.move.to,"var(--arrow-tree)",inContext?0.95:0.55,inContext?0.18:0.12);
+  drawArrow(layer,n.move.from,n.move.to,"var(--arrow-tree)",inContext?0.95:0.55,
+    inContext?ARROW_W.treeMain:ARROW_W.treeAlt);
   if(!inContext){                                  // ghost dots: this move is from another position
     for(const sq of [n.move.from,n.move.to]){
       const p=sqCenter(sq);
@@ -1063,7 +1094,7 @@ function renderTreeArrows(layer){
     const main=i===0;
     const body=(q&&q.scores.has(k)) ? qualityColor(q.best-q.scores.get(k))
                                     : "var(--arrow-tree)";   // unscored moves stay violet
-    drawArrow(layer,k.move.from,k.move.to,body,main?0.95:0.7,main?0.17:0.12);
+    drawArrow(layer,k.move.from,k.move.to,body,main?0.95:0.7,main?ARROW_W.treeMain:ARROW_W.treeAlt);
   }
 }
 function previewMove(node){
@@ -1162,9 +1193,28 @@ document.addEventListener("keydown",e=>{
   if(/input|textarea/i.test(e.target.tagName)) return;
   const map={ArrowLeft:"prev",ArrowRight:"next",ArrowUp:"first",ArrowDown:"last",Home:"first",End:"last"};
   if(map[e.key]){ e.preventDefault(); go[map[e.key]](); sel=null; renderAll(); }
-  else if(e.key==="f"){ flipped=!flipped; renderBoard(); }
+  else if(e.key==="f"){ setFlipped(!flipped); }
 });
-$("flip").onclick=()=>{flipped=!flipped;renderBoard()};
+$("flip").onclick=()=>setFlipped(!flipped);
+/* One door for the flip: the board, the evaluation bar and any view drawing mini boards all
+   read `flipped`, so they all have to be told, and the study has to be told too. */
+function setFlipped(v){
+  flipped=!!v;
+  if(root) root.flipped=flipped;
+  renderBoard(); renderEngine(); updateActiveView(); save();
+  persistFlip();
+}
+/* Saving the whole study for a board rotation is heavy-handed, so it is debounced and quiet —
+   no toast, and a failure is not worth interrupting anyone over: the orientation is still
+   right on screen and rides along with the next real save. */
+let flipSaveT;
+function persistFlip(){
+  if(!authed||!studyId) return;
+  clearTimeout(flipSaveT);
+  flipSaveT=setTimeout(()=>{
+    api("/studies/"+studyId,{method:"PUT",body:JSON.stringify(studyPayload())}).catch(e=>{});
+  },600);
+}
 $("autoEval").addEventListener("change",e=>{
   bgOn=e.target.checked;
   try{ localStorage.setItem("repertoire-autoeval",bgOn?"1":"0"); }catch(err){}
@@ -1367,7 +1417,7 @@ function renderEngine(){
     $("escore").textContent=sfOn?(sfUp?"…":"—"):"—";
     $("escore").className="escore";
     $("emeta").textContent=sfOn&&sfUp?"thinking":"";
-    bar.classList.add("off"); fill.style.height="50%";
+    bar.classList.add("off"); bar.classList.toggle("flip",flipped); fill.style.height="50%";
     renderEngineArrows();
     return;
   }
@@ -1377,7 +1427,8 @@ function renderEngine(){
   $("emeta").textContent="depth "+sfDepth+(sfNps?" · "+Math.round(sfNps/1000)+"k n/s":"");
   bar.classList.remove("off");
   const pct=winPct(sc);
-  fill.style.height=(flipped?100-pct:pct)+"%";
+  bar.classList.toggle("flip",flipped);
+  fill.style.height=pct+"%";
   for(let i=1;i<=SF_MULTIPV;i++){
     const e=sfPV[i]; if(!e) continue;
     const row=document.createElement("div"); row.className="pv-row";
@@ -1392,6 +1443,20 @@ function renderEngine(){
   }
   renderEngineArrows();
 }
+/* Engine arrows are graded, not branded: the arrow takes the colour of the side the line
+   favours, so a glance at the board says who the move is good for. Pure white at a winning
+   position for White, pure black at a winning one for Black, greys through the middle.
+   The ends are pulled off 0/255 slightly so a decisive arrow still reads as a drawn shape
+   against a white or black casing rather than dissolving into it. */
+function evalShade(pct){
+  const v=Math.round(18+(Math.max(0,Math.min(100,pct))/100)*(238-18));
+  return "rgb("+v+","+v+","+v+")";
+}
+/* The casing exists to separate the arrow from the board, so it has to go the other way from
+   whatever shade the arrow landed on — a light arrow gets a dark casing and vice versa. */
+function evalCasing(pct){
+  return pct>=50?"rgba(10,8,5,.85)":"rgba(255,255,255,.92)";
+}
 function renderEngineArrows(){
   const layer=$("engineLayer"); if(!layer) return;
   layer.textContent="";
@@ -1399,12 +1464,14 @@ function renderEngineArrows(){
      being off is an absence of data, not the switch being off — leave the switch alone so it
      still reads the way you left it when the engine comes back. */
   if(!sfOn||!engineArrowsOn) return;
-  const shades=[{o:0.95,w:0.16},{o:0.6,w:0.12},{o:0.42,w:0.10}];
+  const shades=[0.95,0.6,0.42];   // MultiPV rank -> opacity; width comes from engineArrowW
+  const s=stateOf(cur);
   for(let i=SF_MULTIPV;i>=1;i--){
     const e=sfPV[i]; if(!e||!e.pv.length) continue;
-    const m=findSAN(stateOf(cur),e.pv[0]); if(!m) continue;
-    const sh=shades[i-1]||shades[2];
-    drawArrow(layer,sqName(m.from.r,m.from.c),sqName(m.to.r,m.to.c),"var(--arrow-engine)",sh.o,sh.w);
+    const m=findSAN(s,e.pv[0]); if(!m) continue;
+    const pct=winPct(whiteScore(e,s.turn));
+    drawArrow(layer,sqName(m.from.r,m.from.c),sqName(m.to.r,m.to.c),
+      evalShade(pct),shades[i-1]||shades[2],engineArrowW(i-1,pct),evalCasing(pct));
   }
 }
 function addPVToTree(uciList){
@@ -1428,7 +1495,7 @@ $("engineOn").addEventListener("change",e=>{
 function serialize(){
   const walk=n=>({san:n.san,fen:n.fen,move:n.move,name:n.name,comment:n.comment,shapes:n.shapes||[],children:n.children.map(walk)});
   return JSON.stringify({v:1,start:root.startFEN||START,landing:root.landing||[],
-    tree:walk(root),path:pathTo(cur).map(n=>n.san)});
+    flipped:!!root.flipped,tree:walk(root),path:pathTo(cur).map(n=>n.san)});
 }
 /* Signed out, nothing is written down. The board still works — every edit lives in memory and
    goes away on refresh. Signed in, localStorage is a local working copy of the open study, so a
@@ -1451,6 +1518,11 @@ function hydrate(d){
     n.children=(o.children||[]).map(c=>build(c,n)); return n; };
   root=build(d.tree,null); root.startFEN=d.start||START;
   root.landing=Array.isArray(d.landing)?d.landing:(Array.isArray(d.tree&&d.tree.landing)?d.tree.landing:[]);
+  /* Which way round the board sits is a property of the study — a Black repertoire wants to
+     open from Black's side on every machine, so it travels with the tree rather than living
+     in this browser's preferences. */
+  root.flipped=!!(d.flipped!==undefined?d.flipped:(d.tree&&d.tree.flipped));
+  flipped=root.flipped;
   cur=root;
   for(const san of (d.path||[])){ const nx=cur.children.find(c=>c.san===san); if(!nx) break; cur=nx; }
   return true;
@@ -1575,6 +1647,7 @@ function studyPayload(){
   const doc=JSON.parse(serialize());
   doc.tree.path=doc.path;              // the server counts `children` from the root it is given
   doc.tree.landing=root.landing||[];   // rides along with the tree, no schema change needed
+  doc.tree.flipped=!!root.flipped;     // same trick for the board orientation
   return {name:($("studyName").value.trim()||"Untitled study"),
     start_fen:doc.start, tree:doc.tree, pgn:exportPGN()};
 }
@@ -1648,10 +1721,11 @@ async function openStudy(id,fromLink){
   try{
     const rec=await api("/studies/"+id);
     if(!hydrate({tree:rec.tree,start:rec.start_fen,path:rec.tree.path||[],
-                 landing:rec.tree.landing||[]}))
+                 landing:rec.tree.landing||[],flipped:!!rec.tree.flipped}))
       throw new Error("stored tree is unreadable");
     studyId=rec.id; $("studyName").value=rec.name;
     sel=null;
+    renderEngine();          // the study may have arrived flipped; the bar follows the board
     if(!(fromLink&&(parseHash()||{}).p)) goToStart(); else renderAll();
     refreshStudies(); renderLanding();
     if(!fromLink) toast("Opened “"+rec.name+"”");
