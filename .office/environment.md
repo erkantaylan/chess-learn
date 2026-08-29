@@ -216,9 +216,19 @@ them wrong, which makes them a starting set and not a complete one. **Add what y
 - **The database survives everything.** Persistent container plus a named volume means a test you ran
   an hour ago is still in there, and so is the human's real data. *The wrong conclusion:* "the fixture
   I see was created by my run." Check what you are looking at before you assert it.
-- <!-- TODO: add the first trap a hat finds that is about this machine rather than this codebase —
-     an SDK that needs a flag here, a browser that will not start headless, a path length limit.
-     Every entry must name the wrong conclusion it prevents, not just the fact. -->
+- **The build gate fails while your own `aspire run` is up, and it looks like a compile error.**
+  The running `Repertoire.Api` holds `Repertoire.ServiceDefaults.dll` open, so `dotnet build`
+  reports `MSB3027` / `MSB3021` — "the file is locked by: Repertoire.Api (<pid>)" — and exits 1.
+  *The wrong conclusion:* "the build gate is red on this branch", reported on the issue by a hat
+  that had the app running to verify a frontend change. Stop the stack by the pid you started
+  (never a pattern kill) and re-run the gate; it goes green with no code change.
+- **Headless Chrome screenshots of `index.html` are blank or vertically displaced below a ~900px
+  window width**, exactly where the one-column media query makes the page much taller than the
+  window. `--dump-dom` at the same size shows the page rendered fine. *The wrong conclusion:*
+  "the narrow layout is broken." Use a tall window (e.g. `--window-size=899,3000`) or measure
+  over CDP instead. `node` 22 has a global `WebSocket`, so a ~40-line script can drive Chrome's
+  DevTools Protocol with no npm install — real pointer events included, which is the only way
+  to test a drag handle.
 
 A review that walked into one of these and concluded "cannot verify here" is a failed review, not a
 constrained one.
