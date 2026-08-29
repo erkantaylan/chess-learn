@@ -19,7 +19,15 @@
   --shadow:0 1px 0 rgba(28,24,19,.06), 0 12px 30px -18px rgba(28,24,19,.5);
   --on-brass:#FFFDF7;
   --treeH:min(74vh,720px);   /* move-tree height — drag the grip under the tabs   */
-  --railW:400px;             /* right column width — drag the grip between columns */
+  /* Board edge. The page is full width, so nothing else bounds the board: it is
+     capped by viewport height, because a square board is width-driven and would
+     otherwise grow taller than the screen. The 722px floor is the board the old
+     1240px layout gave, so no window ever gets a smaller board than before; the
+     152px is measured -- 88 above the board (page padding, header, to-move row) and
+     61 below it (plate padding, gap, move bar), plus 3 of slack -- and is what keeps
+     the move buttons on screen instead of just under the fold. */
+  --boardMax:clamp(722px, 100vh - 152px, 900px);
+  --boardColW:100%;          /* board column — drag the grip between the columns */
   /* arrows sit on a tan board, so they get saturated hues + a light casing */
   --arrow-tree:#5B21B6;      /* your prepared moves — violet   */
   --arrow-casing:rgba(255,255,255,.92);
@@ -67,7 +75,7 @@ body{margin:0;background:var(--parchment);color:var(--ink);
 button,input,select,textarea{font:inherit;color:inherit}
 :focus-visible{outline:2px solid var(--brass);outline-offset:2px}
 
-.wrap{max-width:1240px;margin:0 auto;padding:14px 20px 60px}
+.wrap{padding:14px 20px 60px}
 header.top{display:flex;align-items:center;gap:10px;
   border-bottom:1px solid var(--line);padding-bottom:4px;margin-bottom:5px}
 h1{font-family:Fraunces,Georgia,serif;font-weight:800;font-size:15px;line-height:1.2;
@@ -82,7 +90,14 @@ button.b.sm{padding:1px 8px;font-size:11.5px}
 .srclink:hover{color:var(--brass)}
 .srclink svg{width:13px;height:13px;fill:currentColor;flex:none}
 
-.cols{display:grid;grid-template-columns:minmax(300px,1fr) 10px minmax(300px,var(--railW,400px));
+/* The grip moves the board column and the rail takes whatever is left, so there is never
+   dead space to the right. --boardColW is the column's MAXIMUM, never its minimum: a width
+   saved on a wide screen can only ever leave the board smaller on a narrow one, never push
+   the layout wider than the window. The +56px is the chrome between the column edge and the
+   board: 28 plate padding + 2 plate border + 16 eval bar + 10 board row gap. */
+.cols{display:grid;
+  grid-template-columns:minmax(300px,min(var(--boardColW,100%),calc(var(--boardMax) + 56px)))
+                        10px minmax(300px,1fr);
   gap:6px;align-items:start}
 .vgrip{position:sticky;top:14px;height:220px;display:flex;align-items:center;justify-content:center;
   cursor:col-resize;user-select:none;touch-action:none;border-radius:3px}
@@ -1854,36 +1869,45 @@ function miniBoard(fen,px,opts){
 function applyTreeHeight(px){
   document.documentElement.style.setProperty("--treeH",px?px+"px":"min(74vh,720px)");
 }
-function applyRailWidth(px){
-  document.documentElement.style.setProperty("--railW",px?px+"px":"400px");
+/* The grip sets the BOARD column and the rail takes the remainder, which is what keeps the
+   drag working in both directions: the rail is a 1fr track, so it can only give width back
+   by the board taking it. No upper clamp here — the CSS caps the column at --boardMax, so
+   dragging past the cap simply stops moving the boundary. */
+function applyBoardWidth(px){
+  document.documentElement.style.setProperty("--boardColW",px?px+"px":"100%");
 }
 function initRailGrip(){
   const grip=$("railGrip"); if(!grip) return;
-  const rail=grip.nextElementSibling;
-  let startX=0,startW=0,dragging=false;
+  const boardCol=grip.previousElementSibling;
+  let startX=0,startW=0,dragging=false,moved=false;
   grip.addEventListener("pointerdown",e=>{
-    dragging=true; startX=e.clientX; startW=rail.getBoundingClientRect().width;
+    dragging=true; moved=false; startX=e.clientX; startW=boardCol.getBoundingClientRect().width;
     grip.classList.add("dragging"); grip.setPointerCapture(e.pointerId); e.preventDefault();
   });
   grip.addEventListener("pointermove",e=>{
     if(!dragging) return;
-    const max=Math.max(320,Math.round(document.querySelector(".wrap").clientWidth*0.66));
-    const px=Math.max(300,Math.min(max,Math.round(startW-(e.clientX-startX))));
-    applyRailWidth(px);
+    const px=Math.max(300,Math.round(startW+(e.clientX-startX)));
+    if(px===Math.round(startW)) return;
+    moved=true;
+    applyBoardWidth(px);
     clearTimeout(grip._t); grip._t=setTimeout(updateActiveView,90);
   });
   const stop=()=>{
     if(!dragging) return;
     dragging=false; grip.classList.remove("dragging");
-    const px=Math.round(rail.getBoundingClientRect().width);
-    try{ localStorage.setItem("repertoire-railW",px); }catch(e){}
+    /* A click that never moved is not a resize. Persisting on a bare pointerup would save
+       whatever width the window happened to squeeze the column to, and that width is a
+       ceiling on every wider window afterwards. */
+    if(!moved) return;
+    const px=Math.round(boardCol.getBoundingClientRect().width);
+    try{ localStorage.setItem("repertoire-boardW",px); }catch(e){}
     updateActiveView();                      // views measure their own width
   };
   grip.addEventListener("pointerup",stop);
   grip.addEventListener("pointercancel",stop);
   grip.addEventListener("dblclick",()=>{
-    applyRailWidth(null);
-    try{ localStorage.removeItem("repertoire-railW"); }catch(e){}
+    applyBoardWidth(null);
+    try{ localStorage.removeItem("repertoire-boardW"); }catch(e){}
     updateActiveView(); toast("Panel width reset");
   });
 }
@@ -2068,7 +2092,10 @@ while(cur.children.length) cur=cur.children[0];   // end of the main line
 $("studyName").value="Urusov Gambit";
 buildTabs();
 initGrip(); initRailGrip();
-try{ const w=parseInt(localStorage.getItem("repertoire-railW"),10); if(w>200) applyRailWidth(w); }catch(e){}
+/* repertoire-railW, the key this replaced, held a rail width against a 1240px page; it means
+   nothing against a full-width one, so it is dropped rather than migrated. */
+try{ localStorage.removeItem("repertoire-railW"); }catch(e){}
+try{ const w=parseInt(localStorage.getItem("repertoire-boardW"),10); if(w>300) applyBoardWidth(w); }catch(e){}
 try{ const h=parseInt(localStorage.getItem("repertoire-treeH"),10);
   if(h>120) document.documentElement.style.setProperty("--treeH",h+"px"); }catch(e){}
 try{ const v=localStorage.getItem("repertoire-view"); if(v) activeView=v; }catch(e){}
