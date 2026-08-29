@@ -22,7 +22,13 @@
   border-radius:6px;padding:2px 8px;font:inherit;font-size:11.5px;cursor:pointer}
 .rwheel .rw-btn:hover{border-color:var(--brass);color:var(--ink)}
 .rwheel .rw-btn[disabled]{opacity:.45;cursor:default}
-.rwheel .rw-stage{position:relative;width:100%}
+/* The wheel is square (viewBox 1000x1000, svg height:auto), so its height follows the rail's
+   width — and the rail is now a 1fr track that takes the whole surplus of a wide window. Left
+   at width:100% a 3440px screen draws a 2366px wheel inside a 720px pane and you see an arc
+   fragment. Bound it by the pane instead: --treeH less the pane's own padding, the bar above
+   and the legend below. */
+.rwheel .rw-stage{position:relative;width:100%;margin:0 auto;
+  max-width:max(260px,calc(var(--treeH,720px) - 134px))}
 .rwheel svg{display:block;width:100%;height:auto}
 .rwheel .arc{cursor:pointer}
 .rwheel .arc:hover{opacity:.85}
