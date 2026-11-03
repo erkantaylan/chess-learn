@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Options;
 using Repertoire.Api.Studies;
 
@@ -13,10 +14,27 @@ public static class AuthEndpoints
     public static IEndpointRouteBuilder MapAuthEndpoints(this IEndpointRouteBuilder routes)
     {
         // Anonymous by design — you cannot sign in through a door that needs you signed in.
-        routes.MapGet("/me", (ClaimsPrincipal user) =>
-                  Results.Ok(new MeResponse(
-                      user.Identity?.IsAuthenticated ?? false,
-                      user.Identity?.Name)))
+        // can_save is the very policy /api/studies enforces, so a guest learns "signed in, but
+        // nothing will be stored" up front instead of from a 403 on the first save.
+        routes.MapGet("/me", async (ClaimsPrincipal user, IAuthorizationService authorization,
+                                    IAuthorizationPolicyProvider policies) =>
+              {
+                  bool authed = user.Identity?.IsAuthenticated ?? false;
+                  if (!authed)
+                  {
+                      return Results.Ok(MeResponse.SignedOut);
+                  }
+
+                  AuthorizationPolicy studiesPolicy = await policies.GetDefaultPolicyAsync();
+                  bool canSave = (await authorization.AuthorizeAsync(user, studiesPolicy)).Succeeded;
+                  string[] roles = user.Identities
+                                       .SelectMany(identity => identity.FindAll(identity.RoleClaimType))
+                                       .Select(claim => claim.Value)
+                                       .Distinct(StringComparer.Ordinal)
+                                       .ToArray();
+
+                  return Results.Ok(new MeResponse(true, user.Identity?.Name, roles, canSave));
+              })
               .AllowAnonymous()
               .WithName("Me");
 
@@ -32,7 +50,7 @@ public static class AuthEndpoints
         routes.MapPost("/logout", async (HttpContext http) =>
               {
                   await http.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
-                  return Results.Ok(new MeResponse(false, null));
+                  return Results.Ok(MeResponse.SignedOut);
               })
               .AllowAnonymous()
               .WithName("Logout");
@@ -69,7 +87,7 @@ public static class AuthEndpoints
 
                   await http.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal);
 
-                  return Results.Ok(new MeResponse(true, auth.Username));
+                  return Results.Ok(new MeResponse(true, auth.Username, [], true));
               })
               .AllowAnonymous()
               .WithName("Login");

@@ -7,7 +7,8 @@ namespace Repertoire.Api.Auth;
 ///
 /// Or, when <see cref="OidcOptions.Authority"/> is set, sign-in goes to the central identity
 /// provider instead and the password pair is ignored entirely. Still one library: anyone the IdP
-/// lets in with the <see cref="OidcOptions.RequiredRole"/> role shares it.
+/// lets in with the <see cref="OidcOptions.RequiredRole"/> role shares it, and a
+/// <see cref="OidcOptions.GuestRole"/> gets the in-memory board, signed in.
 /// </summary>
 public sealed class AuthOptions
 {
@@ -32,11 +33,27 @@ public sealed class AuthOptions
         : !string.IsNullOrWhiteSpace(Username) && !string.IsNullOrWhiteSpace(Password);
 }
 
-/// <summary>Auth__Oidc__Authority / Auth__Oidc__ClientId / Auth__Oidc__ClientSecret.</summary>
+/// <summary>
+/// Auth__Oidc__Authority / Auth__Oidc__ClientId / Auth__Oidc__ClientSecret, plus the re-check
+/// timings Auth__Oidc__RecheckSeconds / Auth__Oidc__MaxOfflineSeconds.
+/// </summary>
 public sealed class OidcOptions
 {
-    /// <summary>The role, in the IdP's <c>roles</c> claim, that this app requires.</summary>
+    /// <summary>The role, in the IdP's <c>roles</c> claim, that studies require.</summary>
     public const string RequiredRole = "user";
+
+    /// <summary>
+    /// The IdP gives this to every signed-in user. Enough to sign in and be named; not enough to
+    /// read or write studies.
+    /// </summary>
+    public const string GuestRole = "guest";
+
+    /// <summary>Holding either one lets you sign in, and keeps you signed in at each re-check.</summary>
+    public static readonly IReadOnlySet<string> SignInRoles = new HashSet<string>(StringComparer.Ordinal)
+    {
+        RequiredRole,
+        GuestRole,
+    };
 
     /// <summary>The issuer, e.g. https://id.example.com/application/o/chess-learn/.</summary>
     public string Authority { get; set; } = string.Empty;
@@ -44,4 +61,16 @@ public sealed class OidcOptions
     public string ClientId { get; set; } = string.Empty;
 
     public string ClientSecret { get; set; } = string.Empty;
+
+    /// <summary>
+    /// How often a session's roles are re-read from the IdP (refresh-token grant), so a role
+    /// removed or an account disabled there takes effect here within this long.
+    /// </summary>
+    public int RecheckSeconds { get; set; } = 300;
+
+    /// <summary>
+    /// While the IdP cannot be reached, sessions carry on with their last known roles — until
+    /// their last successful check is older than this. Then they fail closed.
+    /// </summary>
+    public int MaxOfflineSeconds { get; set; } = 3600;
 }

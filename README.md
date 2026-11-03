@@ -62,10 +62,17 @@ provider, `POST /api/login` is a 404, `/logout` signs out there too):
     Auth__Oidc__ClientId=chess-learn
     Auth__Oidc__ClientSecret=...
 
-Only users whose `roles` claim includes `user` get in, and they all share the
-one library. The provider is visited only at sign-in; after that it is the same
-30-day `repertoire.auth` cookie. Register `https://<host>/signin-oidc` as the
-redirect URI and `https://<host>/signout-callback-oidc` as the post-logout one.
+Anyone whose `roles` claim includes `guest` (the provider gives it to every
+signed-in user) or `user` can sign in. Studies need `user`, and everyone with it
+shares the one library; a guest gets the in-memory board, signed in and told to
+ask for access. After sign-in it is the same 30-day `repertoire.auth` cookie,
+holding the id_token and refresh token. Every `Auth__Oidc__RecheckSeconds`
+(default 300) the roles are re-read with a refresh-token grant: a disabled
+account or a role taken away ends or narrows the session then. If the provider
+is unreachable, sessions keep their roles until their last good check is older
+than `Auth__Oidc__MaxOfflineSeconds` (default 3600). Register
+`https://<host>/signin-oidc` as the redirect URI and
+`https://<host>/signout-callback-oidc` as the post-logout one.
 
 ## Backend / Docker
 

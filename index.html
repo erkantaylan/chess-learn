@@ -1640,22 +1640,28 @@ function renderLanding(){
 
 /* ---------------------------- library (server-backed) ---------------------------- */
 /* apiUp: a server is answering.  authed: it knows who we are and will accept writes.
-   They are separate — the app is fully usable in the gap between them, just amnesiac. */
-let apiUp=false, authed=false, authUser=null, studyId=null;
+   They are separate — the app is fully usable in the gap between them, just amnesiac.
+   guest: signed in through the central login without access to studies — the same amnesiac app,
+   but named, and told why nothing saves. */
+let apiUp=false, authed=false, guest=false, authUser=null, studyId=null;
 const api=(path,opts)=>fetch("/api"+path,Object.assign({credentials:"same-origin",
     headers:{"Content-Type":"application/json"}},opts))
   .then(async r=>{
     /* The session can lapse under us — a 30-day cookie outlives plenty of open tabs. Fold that
        back into the UI here rather than letting every caller discover it separately. */
-    if(r.status===401&&authed){ authed=false; authUser=null; renderAuth();
+    if(r.status===401&&(authed||guest)){ authed=false; guest=false; authUser=null; renderAuth();
       toast("Session expired — sign in again at /login to keep saving"); }
+    /* Access can also be taken away mid-session (roles are re-checked at the identity provider):
+       still signed in, no longer allowed to save. */
+    if(r.status===403&&authed){ authed=false; guest=true; studyId=null; forgetLocalStudy(); renderAuth();
+      toast("Saving is no longer available on this account — ask the owner for access"); }
     if(r.status===204) return null;
     const body=await r.text();
     /* Not every error comes back as JSON — a framework-level 400 or a proxy's 502 is HTML or
        plain text, and parsing that blind turns a readable failure into "Unexpected token '<'". */
     if(!r.ok){ let detail=null;
       try{ detail=body?JSON.parse(body).detail:null; }catch(e){}
-      throw new Error(detail||("Server error "+r.status)); }
+      throw new Error(detail||(r.status===403?"no access — ask the owner for access":("Server error "+r.status))); }
     return body?JSON.parse(body):null; });
 
 function studyPayload(){
@@ -1673,9 +1679,10 @@ async function checkAPI(){
   if(apiUp){
     /* /api/me is 404 on the old Python backend, which throws here and leaves authed false —
        exactly the right answer: that server has no accounts, so nothing can be saved to it. */
-    try{ const me=await api("/me"); authed=!!(me&&me.authed); authUser=(me&&me.user)||null; }
-    catch(e){ authed=false; authUser=null; }
-  } else { authed=false; authUser=null; }
+    try{ const me=await api("/me"); const known=!!(me&&me.authed);
+      authed=known&&me.can_save!==false; guest=known&&!authed; authUser=known?(me.user||null):null; }
+    catch(e){ authed=false; guest=false; authUser=null; }
+  } else { authed=false; guest=false; authUser=null; }
 
   /* Signed out means nothing is stored — however you got here. Signing out through /logout is a
      server redirect that never runs signOut() below, and a cookie can simply expire, so the
@@ -1689,20 +1696,26 @@ async function checkAPI(){
    Signed out there is no prompt, no hint and no mention of an account — the panel simply says
    the session is in memory. Sign-in lives at /login and is not advertised from here. */
 function renderAuth(){
-  const signedIn=apiUp&&authed;
-  $("studyRow").style.display=signedIn?"":"none";
+  const signedIn=apiUp&&authed, asGuest=apiUp&&guest;
+  /* A guest keeps the row for its Sign out button; Save stays visibly there but disabled. */
+  $("studyRow").style.display=(signedIn||asGuest)?"":"none";
   $("studyList").style.display=signedIn?"":"none";
   $("landingNote").style.display=signedIn?"":"none";
   $("saveStudy").disabled=!signedIn; $("saveAsStudy").disabled=!signedIn;
+  const noAccess=asGuest?"Guests cannot save studies — ask the owner for access":"";
+  $("saveStudy").title=noAccess; $("saveAsStudy").title=noAccess;
 
-  $("libState").textContent=signedIn?("signed in as "+(authUser||"you")):"in memory";
+  $("libState").textContent=signedIn?("signed in as "+(authUser||"you"))
+    :asGuest?("signed in as "+(authUser||"you")+" (guest)"):"in memory";
   $("libNote").textContent=signedIn?""
+    :asGuest?"Saving studies needs access this account does not have yet — ask the owner for access. "
+             +"Until then this session lives in memory, and is gone on refresh."
     :"This session lives in memory. Studies you build here are gone on refresh.";
   if(!signedIn) $("studyList").textContent="";
 }
 async function signOut(){
   try{ await api("/logout",{method:"POST"}); }catch(e){}
-  authed=false; authUser=null; studyId=null;
+  authed=false; guest=false; authUser=null; studyId=null;
   /* The board on screen stays exactly as it is — you can keep working, it just stops being
      written down anywhere. Drop the local copy so the next visitor to this browser gets none of it. */
   forgetLocalStudy();
