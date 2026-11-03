@@ -3,6 +3,13 @@
 //   node tools/oidc-e2e.mjs oidc       app started with Auth__Oidc__* and Auth__Oidc__RecheckSeconds=5
 //   node tools/oidc-e2e.mjs password   app started with Auth__Username=erkan Auth__Password=spike-pass
 //
+// Surviving an app restart (Data Protection keys in Postgres) — run a "save" mode, restart the
+// app process, then the matching "reuse" mode. STATE is the file the browser state goes in.
+//   node tools/oidc-e2e.mjs save-password | save-oidc   sign in, keep the cookie
+//   node tools/oidc-e2e.mjs reuse                       the kept cookie still authenticates
+//   node tools/oidc-e2e.mjs midflight-start             stop on the IdP's login page (correlation cookie set)
+//   node tools/oidc-e2e.mjs midflight-finish            finish that sign-in on the restarted app
+//
 // Env: PLAYWRIGHT_CORE (path to playwright-core/index.mjs), CHROME (Chromium binary),
 // APP, IDP, IDP_ENV (the .env holding AUTHENTIK_BOOTSTRAP_TOKEN), SHOTS (screenshot directory).
 // The oidc run deactivates friend1 at the IdP and always re-activates it.
@@ -19,6 +26,7 @@ const IDP = process.env.IDP ?? "http://id.localhost:39100";
 const SHOTS = process.env.SHOTS ?? os.tmpdir();
 const RECHECK_MS = 5000;
 const mode = process.argv[2] ?? "oidc";
+const STATE = process.env.STATE ?? `${SHOTS}/repertoire-e2e-state.json`;
 
 const browser = await chromium.launch({ executablePath: CHROME, headless: true });
 let failures = 0;
@@ -70,7 +78,48 @@ function idpAdmin() {
   };
 }
 
-if (mode === "oidc") {
+if (mode === "save-password" || mode === "save-oidc") {
+  const ctx = await browser.newContext();
+  if (mode === "save-oidc") {
+    await signIn(ctx, "akadmin", "local-owner-pass");
+  } else {
+    const r = await ctx.request.post(APP + "/api/login", { data: { username: "erkan", password: "spike-pass" } });
+    check("save: POST /api/login accepted", r.ok(), String(r.status()));
+  }
+  const m = await me(ctx);
+  check("save: signed in, can save", m.authed && m.can_save === true, JSON.stringify(m));
+  check("save: GET /api/studies is 200", (await status(ctx, "/api/studies")) === 200);
+  await ctx.storageState({ path: STATE });
+  console.log(`      cookie kept: ${cookieSummary(await authCookies(ctx))} -> ${STATE}`);
+  await ctx.close();
+} else if (mode === "reuse") {
+  const ctx = await browser.newContext({ storageState: STATE });
+  console.log(`      reusing ${cookieSummary(await authCookies(ctx))} from ${STATE}`);
+  const m = await me(ctx);
+  check("reuse: /api/me still authed after the restart", m.authed === true && m.can_save === true, JSON.stringify(m));
+  check("reuse: GET /api/studies is 200", (await status(ctx, "/api/studies")) === 200);
+  await ctx.close();
+} else if (mode === "midflight-start") {
+  const ctx = await browser.newContext();
+  const page = await ctx.newPage();
+  await page.goto(APP + "/login?next=/");
+  await page.locator('input[name="uidField"]').waitFor();
+  const corr = (await ctx.cookies(APP + "/signin-oidc")).filter((c) => c.name.startsWith(".AspNetCore.Correlation") || c.name.startsWith(".AspNetCore.OpenIdConnect.Nonce"));
+  check("midflight: on the IdP login page with correlation + nonce cookies", corr.length >= 2, corr.map((c) => c.name.split(".").slice(0, 3).join(".")).join(", "));
+  fs.writeFileSync(STATE + ".url", page.url());
+  await ctx.storageState({ path: STATE });
+  await ctx.close();
+} else if (mode === "midflight-finish") {
+  const ctx = await browser.newContext({ storageState: STATE });
+  const page = await ctx.newPage();
+  await page.goto(fs.readFileSync(STATE + ".url", "utf8"));
+  await idpLogin(page, "akadmin", "local-owner-pass");
+  const back = await page.waitForURL(APP + "/", { timeout: 15000 }).then(() => true, () => false);
+  check("midflight: callback on the restarted app accepted the correlation cookie", back, page.url());
+  const m = await me(ctx);
+  check("midflight: signed in as akadmin", m.authed && m.user === "akadmin", JSON.stringify(m));
+  await ctx.close();
+} else if (mode === "oidc") {
   // (d) anonymous
   {
     const ctx = await browser.newContext();

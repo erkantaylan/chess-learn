@@ -21,6 +21,7 @@
 
   <ItemGroup>
     <PackageVersion Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="$(AspnetVersion)" />
+    <PackageVersion Include="Microsoft.AspNetCore.DataProtection.EntityFrameworkCore" Version="$(AspnetVersion)" />
     <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="$(AspnetVersion)" />
     <!-- Transitive pin (CentralPackageTransitivePinningEnabled): Microsoft.AspNetCore.OpenApi
          10.0.9 pulls Microsoft.OpenApi 2.0.0, which carries GHSA-v5pm-xwqc-g5wc (circular schema
@@ -28,6 +29,12 @@
          Microsoft.AspNetCore.OpenApi 10.x is built against. -->
     <PackageVersion Include="Microsoft.OpenApi" Version="2.12.1" />
     <PackageVersion Include="Scalar.AspNetCore" Version="2.16.20" />
+    <!-- Transitive pins: Microsoft.AspNetCore.DataProtection.EntityFrameworkCore 10.0.11 pulls
+         System.Security.Cryptography.Xml and .Pkcs 10.0.11, which carry GHSA-7hqp-7c5m-4vq6,
+         GHSA-c399-9853-6jmj, GHSA-r955-8q5j-3h83 and GHSA-846f-f764-76mx (denial of service).
+         Patched in 10.0.13. Drop these once AspnetVersion is past that. -->
+    <PackageVersion Include="System.Security.Cryptography.Pkcs" Version="10.0.14" />
+    <PackageVersion Include="System.Security.Cryptography.Xml" Version="10.0.14" />
   </ItemGroup>
 
   <ItemGroup>

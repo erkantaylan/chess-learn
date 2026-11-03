@@ -25,6 +25,10 @@ public class RepertoireProgram
         // ConnectionStrings__cs-repertoire, and so does docker-compose.
         builder.AddNpgsqlDbContext<StudyDbContext>("cs-repertoire");
 
+        // The keys the auth cookie is encrypted with live in that same database, so a redeploy
+        // (a fresh container) does not sign everyone out.
+        builder.Services.AddRepertoireDataProtection();
+
         builder.Services.Configure<AuthOptions>(builder.Configuration.GetSection(AuthOptions.SectionName));
         // Read once up front as well: which handlers exist has to be decided before Build().
         AuthOptions authOptions = builder.Configuration.GetSection(AuthOptions.SectionName).Get<AuthOptions>()

@@ -113,6 +113,11 @@ EF migrations apply on startup, so a fresh Postgres comes up ready. `dotnet-ef`
 is pinned in `.config/dotnet-tools.json` — `dotnet tool restore` once, then
 `dotnet ef migrations add <Name>` from `src/Api/Repertoire.Api`.
 
+The ASP.NET Data Protection keys — what the `repertoire.auth` cookie and the OIDC
+sign-in cookies are encrypted with — live in the same database
+(`data_protection_keys`), under the fixed application name `repertoire`. Nothing
+is written inside the container, so a redeploy signs nobody out.
+
 Both servers set `Cross-Origin-Opener-Policy: same-origin` and
 `Cross-Origin-Embedder-Policy: require-corp` (so `SharedArrayBuffer` is
 available for a future multi-threaded Stockfish), serve `.wasm` as
