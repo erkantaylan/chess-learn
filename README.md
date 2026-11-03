@@ -54,6 +54,19 @@ Locally `src/Api/Repertoire.Api/appsettings.Development.json` carries a
 throwaway pair so the thing runs out of the box. Anywhere else the app refuses
 to boot without them.
 
+Or sign in through a central OpenID Connect provider instead. Setting an
+authority switches the password login off entirely (`/login` goes to the
+provider, `POST /api/login` is a 404, `/logout` signs out there too):
+
+    Auth__Oidc__Authority=https://id.example.com/application/o/chess-learn/
+    Auth__Oidc__ClientId=chess-learn
+    Auth__Oidc__ClientSecret=...
+
+Only users whose `roles` claim includes `user` get in, and they all share the
+one library. The provider is visited only at sign-in; after that it is the same
+30-day `repertoire.auth` cookie. Register `https://<host>/signin-oidc` as the
+redirect URI and `https://<host>/signout-callback-oidc` as the post-logout one.
+
 ## Backend / Docker
 
 Two backends implement the same JSON API (`docs/API.md`):

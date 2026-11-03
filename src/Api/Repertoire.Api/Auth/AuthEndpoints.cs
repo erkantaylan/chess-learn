@@ -20,6 +20,28 @@ public static class AuthEndpoints
               .AllowAnonymous()
               .WithName("Me");
 
+        // With the central IdP configured, the password door does not exist at all (404), rather
+        // than existing and refusing — /login sends you to the IdP instead.
+        if (!routes.ServiceProvider.GetRequiredService<IOptions<AuthOptions>>().Value.UsesOidc)
+        {
+            MapPasswordLogin(routes);
+        }
+
+        // Local only, under OIDC too: the in-app button keeps the board on screen, so it cannot
+        // navigate away to the IdP. GET /logout is the full sign-out.
+        routes.MapPost("/logout", async (HttpContext http) =>
+              {
+                  await http.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+                  return Results.Ok(new MeResponse(false, null));
+              })
+              .AllowAnonymous()
+              .WithName("Logout");
+
+        return routes;
+    }
+
+    private static void MapPasswordLogin(IEndpointRouteBuilder routes)
+    {
         routes.MapPost("/login", async (LoginRequest body, HttpContext http, IOptions<AuthOptions> options) =>
               {
                   AuthOptions auth = options.Value;
@@ -51,16 +73,6 @@ public static class AuthEndpoints
               })
               .AllowAnonymous()
               .WithName("Login");
-
-        routes.MapPost("/logout", async (HttpContext http) =>
-              {
-                  await http.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
-                  return Results.Ok(new MeResponse(false, null));
-              })
-              .AllowAnonymous()
-              .WithName("Logout");
-
-        return routes;
     }
 
     /// <summary>
