@@ -73,7 +73,7 @@ curl -s -c jar -X POST http://localhost:5080/api/login \
   -d '{"username":"erkan","password":"..."}'
 ```
 ```json
-{"authed": true, "user": "erkan"}
+{"authed": true, "user": "erkan", "roles": [], "can_save": true}
 ```
 
 Sets an HttpOnly session cookie (`repertoire.auth`), 30 days, sliding, `Secure`
@@ -83,13 +83,17 @@ are compared in fixed time.
 
 ### `POST /api/logout`
 
-Clears the cookie. Responds `{"authed": false, "user": null}`.
+Clears the cookie. Responds `{"authed": false, "user": null, "roles": [], "can_save": false}`.
 
 ### `GET /api/me`
 
 ```json
-{"authed": true, "user": "erkan"}
+{"authed": true, "user": "erkan", "roles": [], "can_save": true}
 ```
+
+`roles` are the central identity provider's (empty under the password login).
+`can_save` is whether `/api/studies` will accept this session: a guest of the
+central login is `authed` but not `can_save`, and gets **403** there.
 
 Anonymous, so the frontend can ask "am I signed in?" on load. **404 on the
 Python backend**, which has no accounts — the frontend reads that as "not signed
@@ -100,6 +104,9 @@ in", which is the right answer for a server that cannot authenticate anyone.
 Anything under `/api/studies` without a valid cookie returns **401** with an
 empty body — not a redirect to a login page. A session that lapses mid-use
 surfaces the same way, and the frontend folds it back into the signed-out state.
+
+Under the central login, a session without the `user` role (a guest) gets
+**403** there instead — signed in, but no access to the library.
 
 ---
 

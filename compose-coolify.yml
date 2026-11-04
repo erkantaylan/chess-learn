@@ -11,6 +11,12 @@
 #   AUTH_USERNAME        the one account's username
 #   AUTH_PASSWORD        its password           (mark locked/secret)
 #   POSTGRES_PASSWORD    database password      (mark locked/secret)
+#
+# Or, for sign-in through the central IdP instead (any value in AUTH_OIDC_AUTHORITY turns the
+# password login off; leave all three empty to keep it):
+#   AUTH_OIDC_AUTHORITY      issuer URL, https://.../application/o/chess-learn/
+#   AUTH_OIDC_CLIENT_ID      chess-learn
+#   AUTH_OIDC_CLIENT_SECRET  the provider's client secret (mark locked/secret)
 name: repertoire
 
 services:
@@ -34,6 +40,9 @@ services:
       # missing value fails the deploy loudly instead of serving a library nobody can save to.
       - 'Auth__Username=${AUTH_USERNAME}'
       - 'Auth__Password=${AUTH_PASSWORD}'
+      - 'Auth__Oidc__Authority=${AUTH_OIDC_AUTHORITY}'
+      - 'Auth__Oidc__ClientId=${AUTH_OIDC_CLIENT_ID}'
+      - 'Auth__Oidc__ClientSecret=${AUTH_OIDC_CLIENT_SECRET}'
     # TCP probe on Kestrel: the aspnet images ship bash but neither curl nor wget. Generous
     # timeout/retries on purpose — Traefik drops unhealthy containers from routing (502 "no
     # available server"), and a briefly CPU-starved host must not flap a working app out of the

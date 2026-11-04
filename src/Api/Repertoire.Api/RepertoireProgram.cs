@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
@@ -24,7 +25,14 @@ public class RepertoireProgram
         // ConnectionStrings__cs-repertoire, and so does docker-compose.
         builder.AddNpgsqlDbContext<StudyDbContext>("cs-repertoire");
 
+        // The keys the auth cookie is encrypted with live in that same database, so a redeploy
+        // (a fresh container) does not sign everyone out.
+        builder.Services.AddRepertoireDataProtection();
+
         builder.Services.Configure<AuthOptions>(builder.Configuration.GetSection(AuthOptions.SectionName));
+        // Read once up front as well: which handlers exist has to be decided before Build().
+        AuthOptions authOptions = builder.Configuration.GetSection(AuthOptions.SectionName).Get<AuthOptions>()
+                                  ?? new AuthOptions();
 
         // Behind Coolify/Traefik, TLS is terminated at the proxy and the request reaches Kestrel as
         // plain HTTP. Without this the app believes it is serving HTTP, and the session cookie below
@@ -39,34 +47,46 @@ public class RepertoireProgram
             options.KnownProxies.Clear();
         });
 
-        builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
-               .AddCookie(options =>
-               {
-                   options.Cookie.Name = "repertoire.auth";
-                   options.Cookie.HttpOnly = true;
-                   options.Cookie.SameSite = SameSiteMode.Lax;
-                   // Secure whenever the request arrived over HTTPS, so the cookie still works on
-                   // plain-HTTP localhost but is never sent in the clear once there is TLS.
-                   options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
-                   options.ExpireTimeSpan = TimeSpan.FromDays(30);
-                   options.SlidingExpiration = true;
-
-                   // This is an API, not a server-rendered site: answer with a status code rather
-                   // than a 302 to a /Account/Login page that does not exist. Without this the
-                   // frontend's fetch() sees an opaque redirect instead of a clean 401.
-                   options.Events.OnRedirectToLogin = context =>
+        AuthenticationBuilder authentication =
+            builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+                   .AddCookie(options =>
                    {
-                       context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-                       return Task.CompletedTask;
-                   };
-                   options.Events.OnRedirectToAccessDenied = context =>
-                   {
-                       context.Response.StatusCode = StatusCodes.Status403Forbidden;
-                       return Task.CompletedTask;
-                   };
-               });
+                       options.Cookie.Name = "repertoire.auth";
+                       options.Cookie.HttpOnly = true;
+                       options.Cookie.SameSite = SameSiteMode.Lax;
+                       // Secure whenever the request arrived over HTTPS, so the cookie still works on
+                       // plain-HTTP localhost but is never sent in the clear once there is TLS.
+                       options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+                       options.ExpireTimeSpan = TimeSpan.FromDays(30);
+                       options.SlidingExpiration = true;
 
-        builder.Services.AddAuthorization();
+                       // This is an API, not a server-rendered site: answer with a status code rather
+                       // than a 302 to a /Account/Login page that does not exist. Without this the
+                       // frontend's fetch() sees an opaque redirect instead of a clean 401.
+                       options.Events.OnRedirectToLogin = context =>
+                       {
+                           context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                           return Task.CompletedTask;
+                       };
+                       options.Events.OnRedirectToAccessDenied = context =>
+                       {
+                           context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                           return Task.CompletedTask;
+                       };
+                   });
+
+        if (authOptions.UsesOidc)
+        {
+            authentication.AddCentralLogin(authOptions.Oidc);
+        }
+
+        builder.Services.AddAuthorization(options =>
+        {
+            if (authOptions.UsesOidc)
+            {
+                options.RequireCentralRole();
+            }
+        });
 
         // snake_case on the wire: start_fen, created_at, move_count. The contract predates this
         // rewrite (docs/API.md) and the frontend reads those names verbatim.
@@ -115,9 +135,11 @@ public class RepertoireProgram
     }
 
     /// <summary>
-    /// Refuses to boot outside Development without credentials. Deployed with no account
-    /// configured, the app would come up looking healthy while every save silently 401s — better
-    /// to fail at startup, where the message is right there in the logs.
+    /// Refuses to boot outside Development without credentials — either the password pair or a
+    /// complete OIDC client. Deployed with no account configured, the app would come up looking
+    /// healthy while every save silently 401s — better to fail at startup, where the message is
+    /// right there in the logs. A half-configured OIDC client fails everywhere, Development
+    /// included: with an authority set, the OIDC handler runs on every request and would 500 them all.
     /// </summary>
     private static void RequireConfiguredAccount(WebApplication app)
     {
@@ -127,7 +149,14 @@ public class RepertoireProgram
             return;
         }
 
-        const string message = "No account configured. Set Auth__Username and Auth__Password.";
+        if (auth.UsesOidc)
+        {
+            throw new InvalidOperationException(
+                "Auth__Oidc__Authority is set but the client is not. Set Auth__Oidc__ClientId and Auth__Oidc__ClientSecret.");
+        }
+
+        const string message = "No account configured. Set Auth__Username and Auth__Password, or Auth__Oidc__Authority "
+                               + "with Auth__Oidc__ClientId and Auth__Oidc__ClientSecret.";
 
         if (app.Environment.IsDevelopment())
         {

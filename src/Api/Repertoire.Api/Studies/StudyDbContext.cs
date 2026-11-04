@@ -1,10 +1,18 @@
+using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 
 namespace Repertoire.Api.Studies;
 
-public class StudyDbContext(DbContextOptions<StudyDbContext> options) : DbContext(options)
+public class StudyDbContext(DbContextOptions<StudyDbContext> options) : DbContext(options), IDataProtectionKeyContext
 {
     public DbSet<Study> Studies => Set<Study>();
+
+    /// <summary>
+    /// The ASP.NET Data Protection key ring — what the <c>repertoire.auth</c> cookie and the OIDC
+    /// correlation/nonce cookies are encrypted with. Held here rather than in the container, so a
+    /// redeploy does not sign everyone out. See <c>DataProtectionExtensions</c>.
+    /// </summary>
+    public DbSet<DataProtectionKey> DataProtectionKeys => Set<DataProtectionKey>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -30,6 +38,16 @@ public class StudyDbContext(DbContextOptions<StudyDbContext> options) : DbContex
 
             // The listing sorts by updated_at desc, id desc on every page load.
             study.HasIndex(s => s.UpdatedAt).HasDatabaseName("ix_studies_updated_at");
+        });
+
+        // The framework's own entity, renamed to match the snake_case of everything else here.
+        modelBuilder.Entity<DataProtectionKey>(key =>
+        {
+            key.ToTable("data_protection_keys");
+            key.HasKey(k => k.Id);
+            key.Property(k => k.Id).HasColumnName("id").UseIdentityByDefaultColumn();
+            key.Property(k => k.FriendlyName).HasColumnName("friendly_name");
+            key.Property(k => k.Xml).HasColumnName("xml");
         });
     }
 }

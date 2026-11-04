@@ -7,4 +7,7 @@
     <Project Path="src/Aspire/Repertoire.AppHost/Repertoire.AppHost.csproj" />
     <Project Path="src/Aspire/Repertoire.ServiceDefaults/Repertoire.ServiceDefaults.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Repertoire.Api.Tests/Repertoire.Api.Tests.csproj" />
+  </Folder>
 </Solution>

@@ -43,7 +43,14 @@ public sealed record HealthResponse(bool Ok, int Studies);
 
 public sealed record LoginRequest(string? Username, string? Password);
 
-public sealed record MeResponse(bool Authed, string? User);
+/// <summary>
+/// Roles are the IdP's (empty under the password login). CanSave: whether /api/studies will
+/// accept this session — false for a guest, who is signed in but gets the in-memory app.
+/// </summary>
+public sealed record MeResponse(bool Authed, string? User, IReadOnlyList<string> Roles, bool CanSave)
+{
+    public static readonly MeResponse SignedOut = new(false, null, [], false);
+}
 
 internal static class StudyMapping
 {

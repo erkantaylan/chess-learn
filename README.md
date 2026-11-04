@@ -54,6 +54,26 @@ Locally `src/Api/Repertoire.Api/appsettings.Development.json` carries a
 throwaway pair so the thing runs out of the box. Anywhere else the app refuses
 to boot without them.
 
+Or sign in through a central OpenID Connect provider instead. Setting an
+authority switches the password login off entirely (`/login` goes to the
+provider, `POST /api/login` is a 404, `/logout` signs out there too):
+
+    Auth__Oidc__Authority=https://id.example.com/application/o/chess-learn/
+    Auth__Oidc__ClientId=chess-learn
+    Auth__Oidc__ClientSecret=...
+
+Anyone whose `roles` claim includes `guest` (the provider gives it to every
+signed-in user) or `user` can sign in. Studies need `user`, and everyone with it
+shares the one library; a guest gets the in-memory board, signed in and told to
+ask for access. After sign-in it is the same 30-day `repertoire.auth` cookie,
+holding the id_token and refresh token. Every `Auth__Oidc__RecheckSeconds`
+(default 300) the roles are re-read with a refresh-token grant: a disabled
+account or a role taken away ends or narrows the session then. If the provider
+is unreachable, sessions keep their roles until their last good check is older
+than `Auth__Oidc__MaxOfflineSeconds` (default 3600). Register
+`https://<host>/signin-oidc` as the redirect URI and
+`https://<host>/signout-callback-oidc` as the post-logout one.
+
 ## Backend / Docker
 
 Two backends implement the same JSON API (`docs/API.md`):
@@ -92,6 +112,11 @@ Or without Aspire:
 EF migrations apply on startup, so a fresh Postgres comes up ready. `dotnet-ef`
 is pinned in `.config/dotnet-tools.json` — `dotnet tool restore` once, then
 `dotnet ef migrations add <Name>` from `src/Api/Repertoire.Api`.
+
+The ASP.NET Data Protection keys — what the `repertoire.auth` cookie and the OIDC
+sign-in cookies are encrypted with — live in the same database
+(`data_protection_keys`), under the fixed application name `repertoire`. Nothing
+is written inside the container, so a redeploy signs nobody out.
 
 Both servers set `Cross-Origin-Opener-Policy: same-origin` and
 `Cross-Origin-Embedder-Policy: require-corp` (so `SharedArrayBuffer` is
