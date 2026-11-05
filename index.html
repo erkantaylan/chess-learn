@@ -237,10 +237,35 @@ button.b.sm{padding:1px 8px;font-size:11.5px}
 #promo button:hover{border-color:var(--brass);background:var(--parchment-2)}
 
 /* The control strip under the board: walk the line, then how the board is drawn. */
-.ctrl{display:flex;align-items:center;gap:6px;margin-top:10px}
+.ctrl{display:flex;align-items:center;gap:6px;margin-top:10px;container-type:inline-size}
+.ctrl>*{flex:none}
 .ctrl .nav{display:flex;gap:4px}
 .ctrl .spacer{flex:1}
 .ctrl .switch{margin-left:4px;white-space:nowrap}
+/* On the narrower boards the strip would wrap: the key hints go (they stay in the tooltips) and
+   the two switches lose the word "arrows" (the colour chips beside them already say what this
+   group is about). Measured: everything fits on one row from about 640px of board column. */
+@container (max-width:640px){
+  .ctrl .kbd,.ctrl .switch .lg{display:none}
+  .ctrl .switch{margin-left:2px}
+}
+/* The colour your right-drag draws in: four real radios, each worn as a round chip. The radio
+   itself is invisible but still the thing that takes focus and arrow keys. Selected is a full
+   ring around the chip, plus a tick inside it. */
+.swatches{display:flex;align-items:center;gap:3px;border:0;margin:0 2px 0 0;padding:0 2px;min-width:0}
+.swatches legend{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.swatches label{position:relative;display:block;width:22px;height:22px;cursor:pointer}
+.swatches input{position:absolute;inset:0;margin:0;opacity:0;cursor:pointer}
+.swatches .chip{position:absolute;inset:4px;border-radius:50%;background:var(--c);pointer-events:none;
+  box-shadow:0 0 0 1px color-mix(in oklab,var(--c) 60%,var(--ink)) inset;
+  transition:inset .12s,box-shadow .12s}
+.swatches .chip::after{content:"";position:absolute;left:50%;top:50%;width:4px;height:7px;
+  border:solid var(--card);border-width:0 2px 2px 0;transform:translate(-50%,-62%) rotate(45deg);opacity:0;
+  transition:opacity .12s}
+.swatches label:hover .chip{inset:3px}
+.swatches input:checked+.chip{inset:3px;box-shadow:0 0 0 2px var(--card),0 0 0 3.5px var(--c)}
+.swatches input:checked+.chip::after{opacity:1}
+.swatches input:focus-visible+.chip{outline:2px solid var(--brass);outline-offset:4px}
 button.b.ic{display:inline-flex;align-items:center;padding:6px 8px}
 button.b.ic .kbd{margin-left:4px}
 button.b.ic svg{width:14px;height:14px;fill:currentColor;flex:none}
@@ -350,6 +375,25 @@ dialog.dlg form{padding:16px 18px 14px;margin:0}
 dialog.dlg h2{font-family:Fraunces,Georgia,serif;font-size:16px;font-weight:600;letter-spacing:.01em;margin:0 0 8px}
 dialog.dlg p{margin:0 0 10px;font-size:13px;color:var(--ink-2)}
 dialog.dlg .row{display:flex;gap:6px;justify-content:flex-end;margin-top:14px}
+/* The one right-click menu (openMenu). Built like a panel; the item under the pointer or the
+   keyboard is a background tint, never an edge. */
+.ctx{position:fixed;z-index:130;min-width:196px;max-width:300px;background:var(--card);
+  border:1px solid var(--line);box-shadow:var(--shadow);padding:4px;font-size:13px;outline:none}
+.ctx .ctx-h{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink-3);padding:3px 10px 5px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-bottom:1px solid var(--line);margin:0 -4px 4px}
+.ctx button{display:flex;align-items:baseline;gap:14px;width:100%;background:none;border:0;padding:5px 10px;
+  text-align:left;cursor:pointer;color:var(--ink);outline:none;white-space:nowrap}
+.ctx button .k{margin-left:auto;font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink-3)}
+.ctx button.on{background:var(--parchment-2)}
+.ctx button.danger{color:var(--claret)}
+.ctx button.danger.on{background:color-mix(in oklab,var(--claret) 14%,var(--card))}
+.ctx button[aria-disabled="true"]{color:var(--ink-3);opacity:.55;cursor:default}
+.ctx button[aria-disabled="true"].on{background:none}
+.ctx hr{border:0;border-top:1px solid var(--line);margin:4px -4px}
+/* Inline rename in Named lines: the name turns into a field in place. */
+#lines .li input.rn{font:inherit;font-weight:600;font-size:13.5px;width:100%;padding:0 4px;margin:-1px -5px;
+  background:var(--parchment);border:1px solid var(--brass);color:var(--ink);outline:none;
+  box-shadow:0 0 0 1px var(--brass)}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 
@@ -417,11 +461,18 @@ dialog.dlg .row{display:flex;gap:6px;justify-content:flex-end;margin-top:14px}
           <button class="b ic" id="last" title="End (↓ or End)" aria-label="End"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 2v12l8-6zM11 2h2v12h-2z"/></svg><span class="kbd">↓</span></button>
         </div>
         <span class="spacer"></span>
+        <fieldset class="swatches" id="shapeColors">
+          <legend>Colour for arrows and circles you draw</legend>
+          <label title="Green — pick it so a plain right-drag draws green (the colour with no key of its own)"><input type="radio" name="shapeColor" value="G" aria-label="Green" checked><span class="chip" style="--c:var(--shape-G)"></span></label>
+          <label title="Red — pick it, or hold Shift while you right-drag for one red stroke"><input type="radio" name="shapeColor" value="R" aria-label="Red (Shift)"><span class="chip" style="--c:var(--shape-R)"></span></label>
+          <label title="Blue — pick it, or hold Alt while you right-drag for one blue stroke"><input type="radio" name="shapeColor" value="B" aria-label="Blue (Alt)"><span class="chip" style="--c:var(--shape-B)"></span></label>
+          <label title="Yellow — pick it, or hold Ctrl while you right-drag for one yellow stroke"><input type="radio" name="shapeColor" value="Y" aria-label="Yellow (Ctrl)"><span class="chip" style="--c:var(--shape-Y)"></span></label>
+        </fieldset>
         <button class="b" id="flip" title="Flip the board (f)">Flip<span class="kbd">f</span></button>
         <label class="switch sm" title="Show the moves you have prepared from this position. Once Stockfish has scored them, the outline runs green (best) to red (worst).">
-          <input type="checkbox" id="treeArrows" checked><span>Tree arrows</span></label>
+          <input type="checkbox" id="treeArrows" checked><span>Tree<span class="lg"> arrows</span></span></label>
         <label class="switch sm" title="Show Stockfish's top moves as arrows on the board, shaded from white to black by the side each line favours. Independent of the suggestion list — turn this off and the engine keeps analysing and keeps listing its lines, it just stops drawing on the board.">
-          <input type="checkbox" id="engineArrows" checked><span>Engine arrows</span></label>
+          <input type="checkbox" id="engineArrows" checked><span>Engine<span class="lg"> arrows</span></span></label>
       </div>
     </div>
 
@@ -978,11 +1029,14 @@ function mvSpan(node,forceNum){
   b.appendChild(document.createTextNode(node.san));
   if(node.comment) b.title=node.comment;
   b.onclick=()=>{cur=node;sel=null;renderAll()};
+  b.oncontextmenu=e=>moveMenu(e,node);
   frag.appendChild(b);
   if(node.name){ const tag=document.createElement("span"); tag.className="tag"; tag.textContent=node.name;
     tag.title="Click to rename";
-    tag.onclick=e=>{e.stopPropagation();cur=node;sel=null;renderAll();nameLine()}; frag.appendChild(tag); }
-  if(node.comment){ const c=document.createElement("span"); c.className="cmt"; c.textContent=" "+node.comment; frag.appendChild(c); }
+    tag.onclick=e=>{e.stopPropagation();cur=node;sel=null;renderAll();nameLine()};
+    tag.oncontextmenu=e=>moveMenu(e,node); frag.appendChild(tag); }
+  if(node.comment){ const c=document.createElement("span"); c.className="cmt"; c.textContent=" "+node.comment;
+    c.oncontextmenu=e=>moveMenu(e,node); frag.appendChild(c); }
   frag.appendChild(document.createTextNode(" "));
   return frag;
 }
@@ -1042,7 +1096,9 @@ function renderLines(){
     mvs.textContent=pathTo(n).map(x=>{const mn=moveNumber(x);return (mn.white?mn.no+".":"")+x.san}).join(" ");
     pv.appendChild(mvs); pv.title=mvs.textContent;
     row.appendChild(nm); row.appendChild(pv);
-    row.onclick=()=>{cur=n;sel=null;renderAll()};
+    row.dataset.node=n.id;
+    row.onclick=()=>{ if(cur!==n){ cur=n; sel=null; renderAll(); } };
+    row.oncontextmenu=e=>namedLineMenu(e,n);
     el.appendChild(row);
   }
 }
@@ -1059,7 +1115,17 @@ let bgT;
 /* ---------------------------- shapes (arrows & circles) ---------------------------- */
 const SHAPE_COLORS={G:"var(--shape-G)",R:"var(--shape-R)",Y:"var(--shape-Y)",B:"var(--shape-B)"};
 const SVGNS2="http://www.w3.org/2000/svg";
-function shapeColorFor(e){ if(e.shiftKey) return "R"; if(e.altKey) return "B"; if(e.ctrlKey||e.metaKey) return "Y"; return "G"; }
+/* A plain right-drag draws in the colour picked under the board (shapeColor, remembered in
+   this browser); a held modifier still picks its own colour for that one stroke. */
+let shapeColor="G";
+function shapeColorFor(e){ if(e.shiftKey) return "R"; if(e.altKey) return "B"; if(e.ctrlKey||e.metaKey) return "Y"; return shapeColor; }
+function setShapeColor(c,remember){
+  if(!SHAPE_COLORS[c]) return;
+  shapeColor=c;
+  const r=document.querySelector('#shapeColors input[value="'+c+'"]'); if(r) r.checked=true;
+  if(remember) try{ localStorage.setItem("repertoire-shapecolor",c); }catch(e){}
+}
+$("shapeColors").addEventListener("change",e=>{ if(e.target.name==="shapeColor") setShapeColor(e.target.value,true); });
 function sqCenter(name){ // -> {x,y} in 0..8 board units, honouring flip
   const p=parseSq(name);
   const c=flipped?7-p.c:p.c, r=flipped?7-p.r:p.r;
@@ -1338,7 +1404,7 @@ const go={
 };
 ["first","prev","next","last"].forEach(k=>{ $(k).onclick=()=>{go[k]();sel=null;renderAll()} });
 document.addEventListener("keydown",e=>{
-  if(dlg.open) return;                     // the dialog owns the keyboard while it is up
+  if(dlg.open||menuOpen()) return;         // the dialog (or a menu) owns the keyboard while it is up
   if(/input|textarea/i.test(e.target.tagName)) return;
   const map={ArrowLeft:"prev",ArrowRight:"next",ArrowUp:"first",ArrowDown:"last",Home:"first",End:"last"};
   if(map[e.key]){ e.preventDefault(); go[map[e.key]](); sel=null; renderAll(); }
@@ -1384,30 +1450,43 @@ $("reset").onclick=async ()=>{
   detachStudy(); newStudy(START); renderAll(); renderLanding(); changed(); toast("New study");
 };
 
-async function nameLine(){
-  const node=cur;
+/* The line actions, each on any node (default: the current one). The toolbar buttons, the
+   right-click menus and the view API all come through these, so they cannot drift apart. */
+const cleanName=v=>String(v||"").trim().replace(/[{}\]]/g,"");
+async function nameLine(node){
+  node=node||cur;
   const v=await askDialog({title:node.parent?"Name this line":"Name the study",
     text:node.parent?"Name for the line ending at "+node.san+". Leave it empty to remove the name.":"A name for the study's starting position.",
     value:node.name||"",ok:"Save name"});
   if(v===null) return;
-  node.name=v.trim().replace(/[{}\]]/g,"");
+  setLineName(node,v);
+}
+function setLineName(node,v){
+  const was=node.name||"";
+  node.name=cleanName(v);
+  if(node.name===was) return;
   renderAll(); changed(); toast(node.name?"Named “"+node.name+"”":"Name removed");
 }
-$("name").onclick=nameLine;
-$("comment").onclick=async ()=>{
-  const node=cur;
+async function editNote(node){
+  node=node||cur;
   const v=await askDialog({title:"Note",text:"Note for this position. Leave it empty to remove the note.",
     value:node.comment||"",ok:"Save note"});
   if(v===null) return;
   node.comment=v.trim().replace(/[{}]/g,""); renderAll(); changed();
-};
-$("promote").onclick=()=>{ if(makeMainLine(cur)) toast("Promoted to main line"); };
-$("del").onclick=async ()=>{
-  const node=cur, p=node.parent; if(!p) return;
+}
+async function deleteBranch(node){
+  node=node||cur; const p=node.parent; if(!p) return;
   if(!await confirmDialog({title:"Delete branch",text:"Delete "+node.san+" and everything after it?",
     ok:"Delete",danger:true})) return;
-  p.children=p.children.filter(c=>c!==node); if(cur===node){ cur=p; sel=null; } renderAll(); changed();
-};
+  p.children=p.children.filter(c=>c!==node);
+  for(let n=cur;n;n=n.parent) if(n===node){ cur=p; sel=null; break; }   // the cursor was inside it
+  renderAll(); changed();
+}
+function promoteLine(node){ if(makeMainLine(node||cur)) toast("Promoted to main line"); }
+$("name").onclick=()=>nameLine(cur);
+$("comment").onclick=()=>editNote(cur);
+$("promote").onclick=()=>promoteLine(cur);
+$("del").onclick=()=>deleteBranch(cur);
 
 $("loadFen").onclick=async ()=>{
   let fen;
@@ -2044,6 +2123,8 @@ async function refreshStudies(){
     kill.onclick=async ev=>{ ev.stopPropagation(); deleteStudy(r); };
     row.appendChild(nm); row.appendChild(meta); row.appendChild(kill);
     row.onclick=()=>{ if(r.id!==studyId) openStudy(r.id); };
+    row.dataset.id=r.id;
+    row.oncontextmenu=e=>libraryMenu(e,r);
     list.appendChild(row);
   }
   return rows;
@@ -2201,6 +2282,233 @@ dlg.addEventListener("keydown",e=>{
 });
 function askDialog(o){ return openDialog(Object.assign({},o,{value:o.value===undefined?"":o.value})); }
 function confirmDialog(o){ const c=Object.assign({},o); delete c.value; return openDialog(c).then(v=>v===true); }
+
+/* ---------------------------- the right-click menu ----------------------------
+   One menu for every right-click in the app: openMenu(event, items, opts). An item is
+   {label, run, disabled, danger, key} or "-" for a separator; opts.title puts a quiet caption
+   on top (which move, which study). It opens at the pointer and is nudged back inside the
+   window; Escape, a click or a scroll anywhere else, the window losing focus or a resize close
+   it. Arrow keys / Home / End move through the enabled items and Enter or Space runs one. An
+   item closes the menu before it runs, so anything that asks a question (a destructive item
+   always does, through confirmDialog) gets the keyboard to itself. Never on the board: a
+   right-drag there draws, and the board swallows the native menu itself. */
+const ctxEl=document.createElement("div");
+ctxEl.className="ctx"; ctxEl.setAttribute("role","menu"); ctxEl.tabIndex=-1; ctxEl.hidden=true;
+document.body.appendChild(ctxEl);
+let ctxItems=[], ctxActive=-1, ctxReturn=null;
+const menuOpen=()=>!ctxEl.hidden;
+function closeMenu(restore){
+  if(ctxEl.hidden) return;
+  ctxEl.hidden=true; ctxEl.textContent=""; ctxItems=[]; ctxActive=-1;
+  const back=ctxReturn; ctxReturn=null;
+  if(restore&&back&&back.isConnected&&back.focus) try{ back.focus({preventScroll:true}); }catch(e){}
+}
+function ctxSetActive(i){
+  ctxActive=i;
+  ctxItems.forEach((it,j)=>it.el.classList.toggle("on",j===i));
+  if(i>=0) ctxItems[i].el.focus({preventScroll:true}); else ctxEl.focus({preventScroll:true});
+}
+function ctxStep(dir){
+  const n=ctxItems.length; if(!n) return;
+  let i=ctxActive;
+  for(let k=0;k<n;k++){ i=(i+dir+n)%n; if(!ctxItems[i].disabled){ ctxSetActive(i); return; } }
+}
+function ctxRun(i){
+  const it=ctxItems[i]; if(!it||it.disabled) return;
+  closeMenu(true);
+  try{ const r=it.run&&it.run(); if(r&&r.catch) r.catch(err=>console.error(err)); }catch(err){ console.error(err); }
+}
+function openMenu(e,items,opts){
+  opts=opts||{};
+  e.preventDefault(); e.stopPropagation();
+  if(dlg.open) return;
+  closeMenu(false);
+  ctxReturn=document.activeElement;
+  ctxEl.textContent=""; ctxItems=[];
+  if(opts.title){ const h=document.createElement("div"); h.className="ctx-h"; h.textContent=opts.title; ctxEl.appendChild(h); }
+  let lastSep=true;
+  for(const it of items){
+    if(!it) continue;
+    if(it==="-"){ if(!lastSep){ ctxEl.appendChild(document.createElement("hr")); lastSep=true; } continue; }
+    const b=document.createElement("button"); b.type="button"; b.tabIndex=-1;
+    b.setAttribute("role","menuitem");
+    const t=document.createElement("span"); t.textContent=it.label; b.appendChild(t);
+    if(it.key){ const k=document.createElement("span"); k.className="k"; k.textContent=it.key; b.appendChild(k); }
+    if(it.danger) b.classList.add("danger");
+    if(it.disabled) b.setAttribute("aria-disabled","true");
+    const idx=ctxItems.length;
+    b.addEventListener("pointermove",()=>{ const want=it.disabled?-1:idx; if(ctxActive!==want) ctxSetActive(want); });
+    b.addEventListener("click",ev=>{ ev.stopPropagation(); ctxRun(idx); });
+    ctxEl.appendChild(b); ctxItems.push({el:b,disabled:!!it.disabled,run:it.run});
+    lastSep=false;
+  }
+  if(ctxEl.lastChild&&ctxEl.lastChild.tagName==="HR") ctxEl.lastChild.remove();
+  if(!ctxItems.length) return;
+  /* From the keyboard (the Menu key, Shift+F10) there is no pointer: open by the element. */
+  const fromKeys=!e.clientX&&!e.clientY;
+  let x=e.clientX, y=e.clientY;
+  if(fromKeys&&e.currentTarget&&e.currentTarget.getBoundingClientRect){
+    const r=e.currentTarget.getBoundingClientRect(); x=r.left+8; y=r.bottom-2; }
+  ctxEl.style.left="0px"; ctxEl.style.top="0px"; ctxEl.hidden=false;
+  const w=ctxEl.offsetWidth, h=ctxEl.offsetHeight, vw=document.documentElement.clientWidth, vh=window.innerHeight, pad=6;
+  if(x+w>vw-pad) x=x-w;                        // flip to the left of the pointer, like a native menu
+  if(y+h>vh-pad) y=y-h;                        // and above it near the bottom
+  ctxEl.style.left=Math.max(pad,Math.min(x,vw-w-pad))+"px";
+  ctxEl.style.top=Math.max(pad,Math.min(y,vh-h-pad))+"px";
+  if(fromKeys) ctxStep(1); else ctxSetActive(-1);
+}
+ctxEl.addEventListener("keydown",e=>{
+  e.stopPropagation();                         // the board's arrow keys must not see these
+  if(e.key==="Escape"){ e.preventDefault(); closeMenu(true); }
+  else if(e.key==="ArrowDown"){ e.preventDefault(); ctxStep(1); }
+  else if(e.key==="ArrowUp"){ e.preventDefault(); ctxStep(-1); }
+  else if(e.key==="Home"){ e.preventDefault(); ctxActive=-1; ctxStep(1); }
+  else if(e.key==="End"){ e.preventDefault(); ctxActive=0; ctxStep(-1); }
+  else if(e.key==="Enter"||e.key===" "){ e.preventDefault(); if(ctxActive>=0) ctxRun(ctxActive); }
+  else if(e.key==="Tab"){ e.preventDefault(); closeMenu(true); }
+});
+ctxEl.addEventListener("contextmenu",e=>e.preventDefault());
+document.addEventListener("pointerdown",e=>{ if(menuOpen()&&!ctxEl.contains(e.target)) closeMenu(false); },true);
+document.addEventListener("scroll",e=>{ if(menuOpen()&&!ctxEl.contains(e.target)) closeMenu(false); },true);
+document.addEventListener("wheel",e=>{ if(menuOpen()&&!ctxEl.contains(e.target)) closeMenu(false); },{capture:true,passive:true});
+window.addEventListener("blur",()=>closeMenu(false));
+window.addEventListener("resize",()=>closeMenu(false));
+
+/* ---- what each right-click offers ---- */
+const moveLabel=n=>{ if(!n.parent) return "Start position"; const mn=moveNumber(n); return mn.no+(mn.white?". ":"… ")+n.san; };
+/* The moves from the start to `node`, numbered — plain moves, no comments: what you paste into
+   another board. A study that does not start from the initial position carries its FEN. */
+function linePGN(node){
+  const parts=[];
+  pathTo(node).forEach((n,i)=>{ const mn=moveNumber(n); parts.push((mn.white?mn.no+". ":(i===0?mn.no+"... ":""))+n.san); });
+  const head=root.startFEN&&root.startFEN!==START?'[SetUp "1"]\n[FEN "'+root.startFEN+'"]\n\n':"";
+  return head+parts.join(" ");
+}
+function goToNode(n){ cur=n; sel=null; renderAll(); }
+function moveMenu(e,node){
+  if(!node) return;
+  const isRoot=!node.parent;
+  openMenu(e,[
+    {label:isRoot?"Go to start":"Go to move",run:()=>goToNode(node),disabled:node===cur},
+    "-",
+    !isRoot&&{label:node.name?"Rename line…":"Name line…",run:()=>nameLine(node)},
+    !isRoot&&node.name&&{label:"Remove name",run:()=>setLineName(node,"")},
+    {label:node.comment?"Edit note…":"Note…",run:()=>editNote(node)},
+    "-",
+    !isRoot&&{label:"Make main line",run:()=>promoteLine(node),disabled:onMainLine(node)},
+    !isRoot&&{label:"Delete branch…",run:()=>deleteBranch(node),danger:true},
+    "-",
+    {label:"Copy FEN",run:()=>copy(node.fen,"FEN copied")},
+    !isRoot&&{label:"Copy PGN to here",run:()=>copy(linePGN(node),"PGN copied")}
+  ],{title:moveLabel(node)+(node.name?" · "+node.name:"")});
+}
+function namedLineMenu(e,node){
+  openMenu(e,[
+    {label:"Go to line",run:()=>goToNode(node),disabled:node===cur},
+    "-",
+    {label:"Rename…",key:"dbl-click",run:()=>inlineRename(node)},
+    {label:"Remove name",run:()=>setLineName(node,""),danger:true},
+    "-",
+    {label:"Copy line (moves)",run:()=>copy(linePGN(node),"Line copied")}
+  ],{title:node.name});
+}
+/* Rename a named line where it stands: Enter or leaving the field keeps the new name, Escape
+   puts the old one back. An emptied field keeps the old name too — Remove name is its own item,
+   so a slip of the keyboard cannot drop a line from the list. */
+const lineRow=node=>document.querySelector('#lines .li[data-node="'+node.id+'"]');
+function inlineRename(node){
+  const row=lineRow(node); if(!row) return;
+  const nm=row.querySelector(".nm"); if(!nm) return;
+  const inp=document.createElement("input"); inp.className="rn"; inp.value=node.name; inp.spellcheck=false;
+  inp.setAttribute("aria-label","Line name");
+  nm.replaceWith(inp); inp.focus(); inp.select();
+  let done=false;
+  const finish=keep=>{
+    if(done) return; done=true;
+    const v=cleanName(inp.value);
+    if(keep&&v&&v!==node.name) setLineName(node,v);   // renders the list afresh
+    else if(inp.isConnected) inp.replaceWith(nm);
+  };
+  inp.addEventListener("keydown",e=>{
+    e.stopPropagation();
+    if(e.key==="Enter"){ e.preventDefault(); finish(true); }
+    else if(e.key==="Escape"){ e.preventDefault(); finish(false); }
+  });
+  inp.addEventListener("blur",()=>finish(true));
+  inp.addEventListener("click",e=>e.stopPropagation());
+  inp.addEventListener("dblclick",e=>e.stopPropagation());
+}
+/* Double-click a named line to rename it in place. Delegated, because the first click of the
+   pair can redraw the list (it moves the cursor there). */
+$("lines").addEventListener("dblclick",e=>{
+  const row=e.target.closest(".li"); if(!row||e.target.closest("input")) return;
+  const node=allNodes().find(n=>String(n.id)===row.dataset.node);
+  if(node){ e.preventDefault(); inlineRename(node); }
+});
+function libraryMenu(e,r){
+  openMenu(e,[
+    {label:"Open",run:()=>openStudy(r.id),disabled:r.id===studyId},
+    {label:"Rename…",run:()=>renameStudy(r)},
+    {label:"Clone…",run:()=>cloneFromLibrary(r)},
+    "-",
+    {label:"Delete…",run:()=>deleteStudy(r),danger:true}
+  ],{title:r.name});
+}
+function studyMenu(e){
+  const signedIn=apiUp&&authed, mine=signedIn&&studyId!=null&&studyOwned;
+  openMenu(e,[
+    mine&&{label:"Rename…",run:()=>renameStudy({id:studyId,name:$("studyName").value})},
+    signedIn&&{label:studyId==null?"Save as a study…":"Clone…",run:cloneStudy},
+    signedIn&&studyId!=null&&{label:"Copy link",run:()=>$("copyLink").click()},
+    "-",
+    {label:"New study…",run:()=>$("reset").click()}
+  ],{title:signedIn?($("studyName").value||"Untitled Study")+(studyId!=null&&!studyOwned?" · read-only":""):"In memory"});
+}
+/* Renaming the open study goes through its name field, so it saves exactly the way typing in
+   the field does (one autosave). Any other study of yours gets a PUT of just the new name. */
+async function renameStudy(r){
+  const v=await askDialog({title:"Rename study",value:r.name,ok:"Rename"});
+  if(v===null) return;
+  const name=v.trim();
+  if(!name){ toast("A study needs a name"); return; }
+  if(name===r.name) return;
+  if(r.id===studyId){
+    $("studyName").value=name; changed(); refreshStudyRowName(r.id,name);
+    toast("Renamed to “"+name+"”"); return;
+  }
+  try{ await api("/studies/"+r.id,{method:"PUT",body:JSON.stringify({name})}); }
+  catch(err){ toast("Rename failed: "+err.message); return; }
+  toast("Renamed to “"+name+"”"); refreshStudies();
+}
+/* The list redraws after the autosave lands; until then, show the new name at once. */
+function refreshStudyRowName(id,name){
+  const nm=document.querySelector('#studyList .st[data-id="'+id+'"] .nm'); if(nm) nm.textContent=name;
+}
+/* Clone from the Library: the open study clones what is on screen (like the Clone button);
+   another one clones what the server has, and the copy opens, as Clone always does. */
+async function cloneFromLibrary(r){
+  if(r.id===studyId) return cloneStudy();
+  let rec;
+  try{ rec=await api("/studies/"+r.id); if(!rec||!rec.tree) throw new Error("stored tree is unreadable"); }
+  catch(err){ toast("Could not clone: "+err.message); return; }
+  const v=await askDialog({title:"Clone this study",text:"Saves a copy of “"+rec.name+"” as a new study of your own.",
+    value:rec.name+" (copy)",ok:"Clone"});
+  if(v===null) return;
+  let made;
+  try{ made=await api("/studies",{method:"POST",body:JSON.stringify({name:v.trim()||"Untitled Study",
+    start_fen:rec.start_fen||"",tree:rec.tree,pgn:rec.pgn||""})}); }
+  catch(err){ toast("Couldn’t clone: "+err.message); return; }
+  if(await openStudy(made.id,{quiet:true})) toast("Cloned as “"+made.name+"”");
+}
+/* Right-click anywhere on the Study panel: the study's own menu. Except while you are already
+   typing in the name field — then its native edit menu (paste, spelling) is the useful one.
+   "Already" is read at the press, because the press itself focuses the field. */
+let nameWasFocused=false;
+$("studyName").addEventListener("pointerdown",e=>{ nameWasFocused=document.activeElement===e.currentTarget; });
+document.querySelector(".side .panel").addEventListener("contextmenu",e=>{
+  if(e.target===$("studyName")&&nameWasFocused&&!$("studyName").readOnly) return;
+  studyMenu(e);
+});
 
 /* ---------------------------- view API (for views/*.js) ---------------------------- */
 const evalCache=new Map();          // fen -> {depth,cp,mate,turn}  (score from side to move)
@@ -2426,13 +2734,16 @@ window.RT={
   get evalRevision(){ return evalRev; },         // bumps only when an eval lands
   fromFEN, toFEN, legalMoves, moveSAN, findSAN, applyMove, sqName, parseSq, START,
   goTo(node){ cur=node; sel=null; renderAll(); },   // navigation: never saves
+  /* The move's right-click menu, the same one the List view opens. Call it from a
+     `contextmenu` listener on whatever element stands for the node: moveMenu(event, node). */
+  moveMenu,
   /* the three edits a view can make — each autosaves like its button twin */
   promote(node){ return makeMainLine(node); },  // the whole path to node, like the button
   remove(node){ const p=node.parent; if(!p) return;
     p.children=p.children.filter(c=>c!==node);
     for(let n=cur;n;n=n.parent) if(n===node){ cur=p; sel=null; break; }
     renderAll(); changed(); },
-  setName(node,name){ node.name=String(name||"").replace(/[{}\]]/g,""); renderAll(); changed(); },
+  setName(node,name){ node.name=cleanName(name); renderAll(); changed(); },
   toast, registerView
 };
 
@@ -2510,6 +2821,7 @@ $("ioPanel").addEventListener("toggle",()=>{
 try{ if(localStorage.getItem("repertoire-treearrows")==="0"){ treeArrowsOn=false; $("treeArrows").checked=false; } }catch(e){}
 try{ if(localStorage.getItem("repertoire-enginearrows")==="0"){ engineArrowsOn=false; $("engineArrows").checked=false; } }catch(e){}
 try{ if(localStorage.getItem("repertoire-autoeval")==="0"){ bgOn=false; $("autoEval").checked=false; } }catch(e){}
+try{ setShapeColor(localStorage.getItem("repertoire-shapecolor")||"G",false); }catch(e){}
 const restored=loadEvals();
 renderAll();
 renderLanding();

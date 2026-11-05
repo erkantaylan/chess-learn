@@ -25,6 +25,15 @@ branch, and your own names for the lines ride along:
 The rest are Eval, List, Cards, Sheet and Wheel, in `views/`. They are plug-ins
 against a small documented API — see `views/README.md` to add a seventh.
 
+### Right-click for everything
+
+A move (in any view), a named line, a study in the Library and the Study panel itself
+each have a right-click menu: go there, name or rename, add a note, make it the main
+line, delete, copy its FEN or the moves up to it. A named line renames in place —
+double-click it, Enter keeps the new name, Escape puts the old one back. The board is
+the exception: right-drag there draws arrows (and a right-click a circle) in the colour
+picked under the board; Shift, Alt and Ctrl still draw red, blue and yellow for one stroke.
+
 ## Running
 
 Stockfish needs a Web Worker, which browsers refuse to load from `file://`, so
