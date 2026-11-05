@@ -1081,15 +1081,31 @@ function makeOverlay(){
 const ARROW_W={
   hand:0.25,                     // right-drag arrows, and the drag preview
   treeMain:0.16, treeAlt:0.12,   // your first prepared move vs the rest
-  engine:[0.095,0.08,0.065]      // by MultiPV rank, before the decisiveness scaling below
+  engine:0.095                   // the most an engine arrow gets; engineArrowW scales it down
 };
-/* The engine also thins out as the position levels off: a line that wins on the spot draws at
-   full width, a line that keeps things dead equal draws barely there. So the board says how
-   much the suggestion is worth, not just what it is. `pct` is the win percentage from White's
-   side, so distance from 50 is how decisive the line is, either way. */
-function engineArrowW(rank,pct){
-  const mag=Math.min(1,Math.abs(pct-50)/50);
-  return (ARROW_W.engine[rank]||ARROW_W.engine[2])*(0.55+0.45*mag);
+/* An engine arrow's width says how much the suggestion is worth, in two factors.
+   The position sets the scale: the more decisive the BEST line is, the wider all three draw,
+   so a position that wins on the spot shows bold arrows and a dead-equal one shows thin ones.
+   Each line's own loss against that best line then shrinks it within the scale. The loss is
+   in win-percentage points for the side to move, so a pawn thrown away at equality counts for
+   much more than a pawn spent while a rook up. It starts from the same scores and the same
+   yardstick (Stockfish's best, mates folded in) that the prepared-move arrows grade against,
+   so the two never disagree about which move is the best one or which is worse.
+   Grading each line on its own decisiveness, as before, let a losing third line draw thicker
+   than an equal best one: "decisive" said nothing about whose favour.
+   Past ENGINE_CUTOFF points worse than the best a line is not drawn at all — it is not a
+   suggestion any more, and the list beside the board still shows it. Up to the cutoff it
+   narrows and fades linearly toward a hairline, so two nearly equal lines look nearly equal
+   whatever order MultiPV printed them in. */
+const ENGINE_CUTOFF=15, ENGINE_HAIRLINE=0.3, ENGINE_FADE=0.6;
+function engineArrowW(bestPct,loss){
+  const mag=Math.min(1,Math.abs(bestPct-50)/50);
+  const t=Math.min(1,Math.max(0,loss)/ENGINE_CUTOFF);
+  return ARROW_W.engine*(0.55+0.45*mag)*(1-(1-ENGINE_HAIRLINE)*t);
+}
+function engineArrowOpacity(loss){
+  const t=Math.min(1,Math.max(0,loss)/ENGINE_CUTOFF);
+  return 0.95*(1-ENGINE_FADE*t);
 }
 function drawArrow(svg,from,to,color,opacity,width,casing){
   const a=sqCenter(from), b=sqCenter(to);
@@ -1634,14 +1650,23 @@ function renderEngineArrows(){
      being off is an absence of data, not the switch being off — leave the switch alone so it
      still reads the way you left it when the engine comes back. */
   if(!sfOn||!engineArrowsOn) return;
-  const shades=[0.95,0.6,0.42];   // MultiPV rank -> opacity; width comes from engineArrowW
   const s=stateOf(cur);
+  /* Mover-perspective score per line, mates folded in through mateToCp exactly as
+     moveQualities() does, and the best of them as the yardstick (normally line 1; the max
+     also covers a mid-search moment where line 2 has briefly overtaken it). */
+  const mover=e=>e.mate!==null&&e.mate!==undefined?mateToCp(e.mate):(e.cp||0);
+  let best=-Infinity;
+  for(let i=1;i<=SF_MULTIPV;i++){ const e=sfPV[i]; if(e&&e.pv.length) best=Math.max(best,mover(e)); }
+  if(best===-Infinity) return;
+  const bestWin=winPct({cp:best});
   for(let i=SF_MULTIPV;i>=1;i--){
     const e=sfPV[i]; if(!e||!e.pv.length) continue;
+    const loss=bestWin-winPct({cp:mover(e)});
+    if(loss>ENGINE_CUTOFF) continue;           // way off: not drawn, still listed
     const m=findSAN(s,e.pv[0]); if(!m) continue;
-    const pct=winPct(whiteScore(e,s.turn));
+    const pct=winPct(whiteScore(e,s.turn));    // colour still follows whom THIS line favours
     drawArrow(layer,sqName(m.from.r,m.from.c),sqName(m.to.r,m.to.c),
-      evalShade(pct),shades[i-1]||shades[2],engineArrowW(i-1,pct),evalCasing(pct));
+      evalShade(pct),engineArrowOpacity(loss),engineArrowW(bestWin,loss),evalCasing(pct));
   }
 }
 function addPVToTree(uciList){
