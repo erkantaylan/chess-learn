@@ -695,6 +695,20 @@ function playMove(node,m){
 }
 function playSAN(node,san){ const m=findSAN(stateOf(node),san); return m?playMove(node,m):null; }
 function allNodes(n,acc){ n=n||root; acc=acc||[]; acc.push(n); n.children.forEach(c=>allNodes(c,acc)); return acc; }
+/* "Make main line". The main line is the chain of first children from the root, so a move
+   is on it only when every move on the way to it is its parent's first child. Promoting walks
+   from the move up to the root and, at every fork on the way, puts the child on that path
+   first (the others keep their order): one press makes the whole path the main line, however
+   deeply it is nested, and the old main line stays as a variation from the move where the two
+   part. The cursor does not move. The button and the view API both call this, so they cannot
+   drift apart; it returns false (and saves nothing) when the path is already the main line. */
+function onMainLine(n){ for(;n&&n.parent;n=n.parent) if(n.parent.children[0]!==n) return false; return true; }
+function makeMainLine(node){
+  if(onMainLine(node)) return false;
+  for(let n=node;n.parent;n=n.parent){ const p=n.parent;
+    if(p.children[0]!==n) p.children=[n].concat(p.children.filter(c=>c!==n)); }
+  renderAll(); changed(); return true;
+}
 
 /* ---------------------------- PGN ---------------------------- */
 function moveNumber(n){ const s=fromFEN(n.parent.fen); return {no:s.full,white:s.turn==="w"}; }
@@ -949,7 +963,7 @@ function renderBoard(){
   $("fen").value=toFEN(s);
   $("prev").disabled=!cur.parent; $("first").disabled=!cur.parent;
   $("next").disabled=!cur.children.length; $("last").disabled=!cur.children.length;
-  $("promote").disabled=!cur.parent||cur.parent.children[0]===cur;
+  $("promote").disabled=onMainLine(cur);   // off only at the root and on the main line itself
   $("del").disabled=!cur.parent;
   $("name").textContent=cur.parent?(cur.name?"Rename line…":"Name line…"):"Name study…";
 }
@@ -1387,11 +1401,7 @@ $("comment").onclick=async ()=>{
   if(v===null) return;
   node.comment=v.trim().replace(/[{}]/g,""); renderAll(); changed();
 };
-$("promote").onclick=()=>{
-  const p=cur.parent; if(!p) return;
-  p.children=[cur].concat(p.children.filter(c=>c!==cur));
-  renderAll(); changed(); toast("Promoted to main line");
-};
+$("promote").onclick=()=>{ if(makeMainLine(cur)) toast("Promoted to main line"); };
 $("del").onclick=async ()=>{
   const node=cur, p=node.parent; if(!p) return;
   if(!await confirmDialog({title:"Delete branch",text:"Delete "+node.san+" and everything after it?",
@@ -2417,8 +2427,7 @@ window.RT={
   fromFEN, toFEN, legalMoves, moveSAN, findSAN, applyMove, sqName, parseSq, START,
   goTo(node){ cur=node; sel=null; renderAll(); },   // navigation: never saves
   /* the three edits a view can make — each autosaves like its button twin */
-  promote(node){ const p=node.parent; if(!p) return;
-    p.children=[node].concat(p.children.filter(c=>c!==node)); renderAll(); changed(); },
+  promote(node){ return makeMainLine(node); },  // the whole path to node, like the button
   remove(node){ const p=node.parent; if(!p) return;
     p.children=p.children.filter(c=>c!==node);
     for(let n=cur;n;n=n.parent) if(n===node){ cur=p; sel=null; break; }
