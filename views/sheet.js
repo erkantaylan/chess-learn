@@ -141,6 +141,7 @@
     el.title=(n.parent? (RT.moveNumber(n).no+(RT.moveNumber(n).white?". ":"… ")+n.san):"start")
              + (n.name?" — "+n.name:"") + (n.comment?"\n"+n.comment:"");
     el.onclick=()=>RT.goTo(n);
+    el.oncontextmenu=e=>{ if(RT.moveMenu) RT.moveMenu(e,n); };
     return el;
   }
 

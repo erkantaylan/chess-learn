@@ -328,6 +328,7 @@
     target.addEventListener("mousemove",ev=>posTip(ev));
     target.addEventListener("mouseleave",hideTip);
     target.addEventListener("click",()=>{ hideTip(); RT.goTo(n); });
+    target.addEventListener("contextmenu",ev=>{ hideTip(); if(RT.moveMenu) RT.moveMenu(ev,n); });
   }
   function showTip(evt,n,e,gap){
     const t=ui.tip;

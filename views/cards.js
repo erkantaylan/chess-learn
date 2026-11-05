@@ -231,6 +231,7 @@
     var hl=n.move?[n.move.from,n.move.to]:null;
     left.appendChild(RT.miniBoard(n.fen,98,{highlight:hl,flip:RT.flipped}));
     left.onclick=function(){ RT.goTo(n); };
+    left.oncontextmenu=function(ev){ if(RT.moveMenu) RT.moveMenu(ev,n); };
     wrap.appendChild(left);
 
     var right=el("div","right");
@@ -248,6 +249,7 @@
     var pt=el("div","path",pathText(n));
     pt.title=pathText(n);
     pt.onclick=function(){ RT.goTo(n); };
+    pt.oncontextmenu=function(ev){ if(RT.moveMenu) RT.moveMenu(ev,n); };
     right.appendChild(pt);
 
     var chips=el("div","chips");
@@ -279,6 +281,7 @@
     tr.appendChild(fi); e.appendChild(tr);
     if(hole) e.appendChild(el("span","flag","hole"));
     if(!blank) e.onclick=function(ev2){ ev2.stopPropagation(); RT.goTo(c); };
+    if(!blank) e.oncontextmenu=function(ev2){ ev2.stopPropagation(); if(RT.moveMenu) RT.moveMenu(ev2,c); };
     return e;
   }
 

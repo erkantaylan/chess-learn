@@ -243,6 +243,7 @@
     });
     hub.addEventListener("mousemove",e=>{ hoverNode=base; showTip(base,e); paint(); });
     hub.addEventListener("dblclick",()=>{ RT.goTo(base); });
+    hub.addEventListener("contextmenu",e=>{ hideTip(); if(RT.moveMenu) RT.moveMenu(e,base); });
     hub.addEventListener("mouseleave",()=>{ hoverNode=null; hideTip(); paint(); });
     const hubTxt=mk("text",{x:CX,y:CY-4,"text-anchor":"middle","font-size":22,fill:"var(--ink)"});
     hubTxt.setAttribute("class","lbl");
@@ -278,6 +279,7 @@
         p.addEventListener("mousemove",e=>{ hoverNode=nd; showTip(nd,e); paint(); });
       }else{
         p.addEventListener("click",e=>{ e.stopPropagation(); RT.goTo(nd); });
+        p.addEventListener("contextmenu",e=>{ hideTip(); if(RT.moveMenu) RT.moveMenu(e,nd); });
         p.addEventListener("dblclick",e=>{ e.stopPropagation(); wheelRoot=nd; draw(); });
         p.addEventListener("mousemove",e=>{ hoverNode=nd; showTip(nd,e); paint(); });
       }

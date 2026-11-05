@@ -304,6 +304,7 @@
       g.appendChild(ttl);
 
       g.addEventListener("click",()=>RT.goTo(n));
+      g.addEventListener("contextmenu",e=>{ if(RT.moveMenu) RT.moveMenu(e,n); });
       nodes.appendChild(g);
       if(n===cur) curPos={x:cx,y:cy};
     }
