@@ -18,16 +18,23 @@
   --piece-w:#FFFDF7; --piece-b:#221D16; --piece-edge:#0E0B07;
   --shadow:0 1px 0 rgba(28,24,19,.06), 0 12px 30px -18px rgba(28,24,19,.5);
   --on-brass:#FFFDF7;
-  --treeH:min(74vh,720px);   /* move-tree height — drag the grip under the tabs   */
-  /* Board edge. The page is full width, so nothing else bounds the board: it is
-     capped by viewport height, because a square board is width-driven and would
-     otherwise grow taller than the screen. The 722px floor is the board the old
-     1240px layout gave, so no window ever gets a smaller board than before; the
-     152px is measured -- 88 above the board (page padding, header, to-move row) and
-     61 below it (plate padding, gap, move bar), plus 3 of slack -- and is what keeps
-     the move buttons on screen instead of just under the fold. */
-  --boardMax:clamp(722px, 100vh - 152px, 900px);
-  --boardColW:100%;          /* board column — drag the grip between the columns */
+  /* Move-tree height — drag the grip under the tree. The default runs the tree down to the
+     bottom of the window: the 410px is measured with Stockfish on (its panel at its tallest) --
+     page padding and header 46, Stockfish 196, gap 17, the tree's header, line actions and
+     tabs 118, grip 15, plus 18 of slack -- so the whole pane and its grip are on screen without
+     scrolling the page. */
+  --treeH:clamp(260px, 100vh - 410px, 720px);
+  /* Board edge. A square board is width-driven and would otherwise grow taller than the
+     screen, so it is capped by viewport height. The 152px is measured -- 89 above the board
+     (page padding 14, header 32, plate top 15, to-move row 28) and 59 below it (plate bottom
+     15, gap 10, control strip 34), plus 4 of slack -- and is what keeps the control strip on
+     screen instead of just under the fold. --boardMin is the floor: below it the window
+     scrolls rather than the board shrinking further. */
+  --boardMin:456px;          /* the smallest board that keeps the control strip on one row */
+  --boardMax:clamp(var(--boardMin), 100vh - 152px, 900px);
+  --boardColW:100%;          /* board column — drag the grip between board and right column */
+  --leftW:256px;             /* left column: the study, the library, named lines */
+  --rightMin:360px;          /* right column floor: fits the four line actions on one row */
   /* arrows sit on a tan board, so they get saturated hues + a light casing */
   --arrow-tree:#5B21B6;      /* your prepared moves — violet   */
   --arrow-casing:rgba(255,255,255,.92);
@@ -70,13 +77,23 @@
 }
 
 *{box-sizing:border-box}
+/* A desktop layout, three columns side by side. Below the width they need the page scrolls
+   sideways instead of squeezing the board: the floor is the left column, the smallest board
+   column (--boardMin + 56, see .cols), the right column's floor, the two gutters (16 + 22)
+   and the page padding (2 x 20). */
 body{margin:0;background:var(--parchment);color:var(--ink);
+  min-width:calc(var(--leftW) + var(--boardMin) + 56px + var(--rightMin) + 38px + 40px);
   font-family:"IBM Plex Sans",system-ui,sans-serif;font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+[hidden]{display:none!important}
 button,input,select,textarea{font:inherit;color:inherit}
 :focus-visible{outline:2px solid var(--brass);outline-offset:2px}
 
-.wrap{padding:14px 20px 60px}
-header.top{display:flex;align-items:center;gap:10px;
+/* No bottom padding: the board column ends 4px above the window's bottom edge by design (see
+   --boardMax), so any padding here would make every page scroll by that much. The right
+   column, the only one that can run longer, carries its own. */
+.wrap{padding:14px 20px 0}
+/* Fixed height, so signing in (which adds a button) never nudges the board down. */
+header.top{display:flex;align-items:center;gap:10px;height:27px;
   border-bottom:1px solid var(--line);padding-bottom:4px;margin-bottom:5px}
 h1{font-family:Fraunces,Georgia,serif;font-weight:800;font-size:15px;line-height:1.2;
   letter-spacing:.01em;margin:0;white-space:nowrap}
@@ -90,21 +107,35 @@ button.b.sm{padding:1px 8px;font-size:11.5px}
 .srclink:hover{color:var(--brass)}
 .srclink svg{width:13px;height:13px;fill:currentColor;flex:none}
 
-/* The grip moves the board column and the rail takes whatever is left, so there is never
-   dead space to the right. --boardColW is the column's MAXIMUM, never its minimum: a width
-   saved on a wide screen can only ever leave the board smaller on a narrow one, never push
-   the layout wider than the window. The +56px is the chrome between the column edge and the
-   board: 28 plate padding + 2 plate border + 16 eval bar + 10 board row gap. */
+/* Three columns: the study on the left at a fixed width, the board in the middle, and the
+   engine + move tree on the right taking whatever is left. The board column grows first (a
+   fixed-max track is filled before a 1fr one), up to the board's height cap, so the right
+   column gets the remainder and there is never dead space. The grip between board and right
+   column moves that boundary: --boardColW is the board column's MAXIMUM, never its minimum,
+   so a width saved on a wide screen can only ever leave the board smaller on a narrow one,
+   never push the layout wider than the window. The +56px is the chrome between the column
+   edge and the board: 28 plate padding + 2 plate border + 16 eval bar + 10 board row gap.
+   The 16px and 22px tracks are the gutters; the second one is the grip's hit area. */
 .cols{display:grid;
-  grid-template-columns:minmax(300px,min(var(--boardColW,100%),calc(var(--boardMax) + 56px)))
-                        10px minmax(300px,1fr);
-  gap:6px;align-items:start}
-.vgrip{position:sticky;top:14px;height:220px;display:flex;align-items:center;justify-content:center;
+  grid-template-columns:var(--leftW) 16px
+    minmax(calc(var(--boardMin) + 56px),min(var(--boardColW,100%),calc(var(--boardMax) + 56px)))
+    22px minmax(var(--rightMin),1fr);
+  align-items:start}
+/* The left column never makes the page longer: it is held to the window (43px above it at
+   the top of the page, 14 below) and Named lines, at the bottom, scrolls inside itself instead. */
+.side{grid-column:1;min-width:0;position:sticky;top:14px;max-height:calc(100vh - 57px);
+  display:flex;flex-direction:column}
+.side .panel{flex:none}
+.side .panel.grow{flex:0 1 auto;min-height:150px;display:flex;flex-direction:column}
+.side .panel.grow>#lines{overflow-y:auto;min-height:0}
+/* The board stays put while a long right column scrolls the page. */
+.boardcol{grid-column:3;min-width:0;position:sticky;top:14px}
+.rail{grid-column:5;min-width:0;padding-bottom:20px}
+.vgrip{grid-column:4;position:sticky;top:14px;height:220px;display:flex;align-items:center;justify-content:center;
   cursor:col-resize;user-select:none;touch-action:none;border-radius:3px}
 .vgrip i{display:block;width:3px;height:46px;border-radius:2px;background:var(--ink-3);opacity:.35;
   transition:opacity .12s,background .12s,height .12s}
 .vgrip:hover i,.vgrip.dragging i{opacity:1;background:var(--brass);height:80px}
-@media (max-width:900px){.cols{grid-template-columns:1fr}.vgrip{display:none}}
 
 .plate{position:relative;background:var(--card);border:1px solid var(--line);
   box-shadow:var(--shadow);padding:14px}
@@ -123,7 +154,9 @@ button.b.sm{padding:1px 8px;font-size:11.5px}
 /* Flipped board: White is now at the top, so White's slice of the bar has to grow downwards
    from the top edge — otherwise the white block sits next to the black king. */
 .evalbar.flip .fill{bottom:auto;top:0}
-.evalbar.off{opacity:.25}
+/* No engine, no evaluation: the bar goes, but its slot stays so the board does not shift. */
+.evalbar{transition:opacity .2s,visibility .2s}
+.evalbar.off{opacity:0;visibility:hidden}
 .evalbar .mid{position:absolute;left:0;right:0;top:50%;height:1px;background:var(--brass);opacity:.7}
 
 .engine{padding:11px 14px 13px;display:flex;flex-direction:column;gap:9px}
@@ -143,6 +176,7 @@ button.b.sm{padding:1px 8px;font-size:11.5px}
   text-transform:uppercase;letter-spacing:.06em;color:var(--brass);opacity:0;white-space:nowrap}
 .pv-row:hover .add{opacity:1}
 .enote{font-size:12.5px;color:var(--ink-3);margin:0}
+.pvlist:empty,.enote:empty{display:none}
 .enote code{background:var(--parchment-2);padding:1px 5px;font-family:"IBM Plex Mono",monospace;font-size:11.5px}
 .switch{display:flex;align-items:center;gap:7px;cursor:pointer;font-size:12px;
   text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3);font-weight:600}
@@ -202,7 +236,14 @@ button.b.sm{padding:1px 8px;font-size:11.5px}
 #promo button svg{width:54px;height:54px;display:block}
 #promo button:hover{border-color:var(--brass);background:var(--parchment-2)}
 
-.bar{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
+/* The control strip under the board: walk the line, then how the board is drawn. */
+.ctrl{display:flex;align-items:center;gap:6px;margin-top:10px}
+.ctrl .nav{display:flex;gap:4px}
+.ctrl .spacer{flex:1}
+.ctrl .switch{margin-left:4px;white-space:nowrap}
+button.b.ic{display:inline-flex;align-items:center;padding:6px 8px}
+button.b.ic .kbd{margin-left:4px}
+button.b.ic svg{width:14px;height:14px;fill:currentColor;flex:none}
 button.b{background:var(--card);border:1px solid var(--line);padding:6px 11px;cursor:pointer;font-size:13px;
   transition:border-color .12s,background .12s}
 button.b:hover{border-color:var(--brass);background:var(--parchment-2)}
@@ -216,6 +257,16 @@ button.b .kbd{font-family:"IBM Plex Mono",monospace;color:var(--ink-3);font-size
 .phead{display:flex;align-items:center;gap:8px;padding:11px 14px;border-bottom:1px solid var(--line)}
 .phead h2{font-family:Fraunces,Georgia,serif;font-size:14px;margin:0;font-weight:600;letter-spacing:.02em}
 .phead .n{margin-left:auto;font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink-3)}
+/* What you can do to the line you are on: a toolbar between the tree's header and its tabs. */
+.lineacts{display:flex;gap:4px;flex-wrap:wrap;padding:8px;border-bottom:1px solid var(--line)}
+/* A panel that folds: the header is the <summary>. */
+details.fold>summary{cursor:pointer;list-style:none;user-select:none}
+details.fold>summary::-webkit-details-marker{display:none}
+details.fold>summary:hover h2{color:var(--brass)}
+details.fold:not([open])>summary{border-bottom:none}
+.chev{margin-left:auto;width:12px;height:12px;fill:none;stroke:var(--ink-3);stroke-width:1.6;
+  transition:transform .15s}
+details.fold[open]>summary .chev{transform:rotate(180deg)}
 
 .grip{height:14px;display:flex;align-items:center;justify-content:center;gap:8px;cursor:ns-resize;
   border-top:1px solid var(--line);background:var(--parchment-2);user-select:none;touch-action:none}
@@ -250,20 +301,23 @@ button.b .kbd{font-family:"IBM Plex Mono",monospace;color:var(--ink-3);font-size
 .cmt{font-family:"IBM Plex Sans",sans-serif;font-size:12.5px;color:var(--ink-3);font-style:italic}
 
 #lines{padding:8px 14px 14px;display:flex;flex-direction:column;gap:1px}
-#lines .li{display:flex;gap:9px;align-items:baseline;padding:5px 6px;cursor:pointer}
+/* Name over moves: the left column is too narrow to set them side by side. */
+#lines .li{display:flex;flex-direction:column;padding:5px 6px;cursor:pointer}
 #lines .li:hover{background:var(--parchment-2)}
-#lines .li.cur{background:var(--parchment-2);box-shadow:inset 2px 0 0 var(--brass)}
+#lines .li.cur{background:var(--brass-soft)}
 #lines .nm{font-weight:600;font-size:13.5px}
 #lines .pv{font-family:"IBM Plex Mono",monospace;font-size:11.5px;color:var(--ink-3);
-  margin-left:auto;text-align:right;max-width:54%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;direction:rtl;text-align:left}
 #lines .none{color:var(--ink-3);font-size:13px;padding:4px 6px;margin:0}
 
-#studyList{display:flex;flex-direction:column;gap:1px}
-#studyList .st{display:flex;gap:9px;align-items:baseline;padding:5px 6px;cursor:pointer}
+#studyList{display:flex;flex-direction:column;gap:1px;max-height:30vh;overflow-y:auto}
+/* Name over date, delete at the right: the left column is too narrow for one row. */
+#studyList .st{display:grid;grid-template-columns:1fr auto;column-gap:6px;align-items:center;padding:5px 6px;cursor:pointer}
+#studyList .st .kill{grid-column:2;grid-row:1/span 2}
 #studyList .st:hover{background:var(--parchment-2)}
-#studyList .st.cur{background:var(--parchment-2);box-shadow:inset 2px 0 0 var(--brass)}
+#studyList .st.cur{background:var(--brass-soft)}
 #studyList .st .nm{font-weight:600;font-size:13.5px}
-#studyList .st .meta{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink-3);margin-left:auto;
+#studyList .st .meta{grid-column:1;font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink-3);
   font-variant-numeric:tabular-nums}
 #studyList .st .kill{border:none;background:none;color:var(--ink-3);cursor:pointer;padding:0 2px;font-size:15px;line-height:1}
 #studyList .st .kill:hover{color:var(--claret)}
@@ -279,6 +333,23 @@ textarea{min-height:92px}
 .toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:var(--ink);color:var(--parchment);
   padding:8px 16px;font-size:13px;box-shadow:var(--shadow);opacity:0;transition:opacity .2s;pointer-events:none;z-index:120}
 .toast.on{opacity:1}
+/* Who is signed in, at the right end of the header. */
+.who{font-size:11.5px;color:var(--ink-3);white-space:nowrap}
+/* Autosave status, in the Study panel's header above the name: a quiet word, not a control. */
+.savestate{margin-left:auto;font-size:11.5px;color:var(--ink-3);text-align:right;line-height:1.3}
+.savestate.err{color:var(--claret)}
+button.b.danger{background:var(--claret);border-color:var(--claret);color:var(--on-brass);font-weight:600}
+button.b.danger:hover{filter:brightness(1.08)}
+/* The one in-app dialog (askDialog). A native <dialog> opened with showModal(), so the page
+   behind it is inert; the form fills it edge to edge so a click on the dialog element itself
+   can only be a click on the backdrop. */
+dialog.dlg{border:1px solid var(--line);background:var(--card);color:var(--ink);padding:0;
+  box-shadow:var(--shadow);width:min(420px,calc(100vw - 32px));max-width:none}
+dialog.dlg::backdrop{background:rgba(20,17,13,.5)}
+dialog.dlg form{padding:16px 18px 14px;margin:0}
+dialog.dlg h2{font-family:Fraunces,Georgia,serif;font-size:16px;font-weight:600;letter-spacing:.01em;margin:0 0 8px}
+dialog.dlg p{margin:0 0 10px;font-size:13px;color:var(--ink-2)}
+dialog.dlg .row{display:flex;gap:6px;justify-content:flex-end;margin-top:14px}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 
@@ -287,12 +358,9 @@ textarea{min-height:92px}
   <header class="top">
     <h1 title="Your own analysis board — branch freely, name the lines that matter.">Repertoire <span class="k">Table</span></h1>
     <div class="spacer"></div>
-    <label class="switch sm" title="Show the moves you have prepared from this position. Once Stockfish has scored them, the outline runs green (best) to red (worst).">
-      <input type="checkbox" id="treeArrows" checked><span>Tree arrows</span></label>
-    <label class="switch sm" title="Show Stockfish's top moves as arrows on the board, shaded from white to black by the side each line favours. Independent of the suggestion list — turn this off and the engine keeps analysing and keeps listing its lines, it just stops drawing on the board.">
-      <input type="checkbox" id="engineArrows" checked><span>Engine arrows</span></label>
-    <button class="b sm" id="flip">Flip board <span class="kbd">f</span></button>
-    <button class="b sm" id="reset">New study</button>
+    <span class="who" id="who"></span>
+    <button class="b sm" id="signIn" hidden title="Sign in to keep your studies — they save as you go">Sign in</button>
+    <button class="b sm" id="signOut" hidden title="Sign out of this app — the board stays on screen, it just stops saving">Sign out</button>
     <a class="srclink" href="https://github.com/erkantaylan/chess-learn" target="_blank"
        rel="noopener noreferrer" title="Source on GitHub">
       <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
@@ -300,7 +368,38 @@ textarea{min-height:92px}
   </header>
 
   <div class="cols">
-    <div>
+    <aside class="side">
+      <div class="panel">
+        <div class="phead"><h2>Study</h2><span class="savestate" id="saveState" aria-live="polite"></span></div>
+        <div class="io">
+          <div class="row" id="studyRow">
+            <input class="t" id="studyName" style="flex:1" placeholder="Study name" spellcheck="false">
+          </div>
+          <div class="row">
+            <button class="b" id="reset">New study</button>
+            <button class="b" id="cloneStudy" title="Save a copy of this board as a new study of your own">Clone…</button>
+          </div>
+          <p class="hint-txt" id="libNote"></p>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="phead"><h2>Library</h2><span class="n" id="libState">in memory</span></div>
+        <div class="io">
+          <div id="studyList"></div>
+          <div class="row" id="toolRow">
+            <button class="b" id="copyLink" title="Copy a link to this study and position">Copy link</button>
+            <button class="b" id="setLanding" title="Open this study at the current position from now on">Set landing here</button>
+          </div>
+          <p class="hint-txt" id="landingNote"></p>
+        </div>
+      </div>
+      <div class="panel grow">
+        <div class="phead"><h2>Named lines</h2><span class="n" id="lineCount"></span></div>
+        <div id="lines"></div>
+      </div>
+    </aside>
+
+    <div class="boardcol">
       <div class="plate">
         <div class="tomove"><span class="dot" id="turnDot"></span><span id="turnTxt">White to move</span>
           <span class="status" id="status"></span></div>
@@ -310,21 +409,59 @@ textarea{min-height:92px}
         </div>
         <div id="promo"><div class="box"></div></div>
       </div>
-      <div class="bar">
-        <button class="b" id="first">⏮ Start</button>
-        <button class="b" id="prev">◀ Back<span class="kbd">←</span></button>
-        <button class="b" id="next">Forward ▶<span class="kbd">→</span></button>
-        <button class="b" id="last">End ⏭</button>
-        <button class="b primary" id="name">Name this line…</button>
-        <button class="b" id="comment">Note…</button>
-        <button class="b" id="promote">Make main line</button>
-        <button class="b" id="del">Delete branch</button>
+      <div class="ctrl">
+        <div class="nav">
+          <button class="b ic" id="first" title="Start (↑ or Home)" aria-label="Start"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 2h2v12H3zM14 2v12L6 8z"/></svg><span class="kbd">↑</span></button>
+          <button class="b ic" id="prev" title="Back (←)" aria-label="Back"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M12 2v12L4 8z"/></svg><span class="kbd">←</span></button>
+          <button class="b ic" id="next" title="Forward (→)" aria-label="Forward"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2v12l8-6z"/></svg><span class="kbd">→</span></button>
+          <button class="b ic" id="last" title="End (↓ or End)" aria-label="End"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 2v12l8-6zM11 2h2v12h-2z"/></svg><span class="kbd">↓</span></button>
+        </div>
+        <span class="spacer"></span>
+        <button class="b" id="flip" title="Flip the board (f)">Flip<span class="kbd">f</span></button>
+        <label class="switch sm" title="Show the moves you have prepared from this position. Once Stockfish has scored them, the outline runs green (best) to red (worst).">
+          <input type="checkbox" id="treeArrows" checked><span>Tree arrows</span></label>
+        <label class="switch sm" title="Show Stockfish's top moves as arrows on the board, shaded from white to black by the side each line favours. Independent of the suggestion list — turn this off and the engine keeps analysing and keeps listing its lines, it just stops drawing on the board.">
+          <input type="checkbox" id="engineArrows" checked><span>Engine arrows</span></label>
       </div>
-      <div class="panel" style="margin-top:16px">
-        <div class="phead"><h2>Position &amp; import</h2></div>
+    </div>
+
+    <div class="vgrip" id="railGrip" title="Drag to resize the board — double-click to reset"><i></i></div>
+
+    <div class="rail">
+      <div class="panel">
+        <div class="phead"><h2>Stockfish</h2>
+          <label class="switch"><input type="checkbox" id="engineOn"><span id="engineState">off</span></label>
+          <label class="switch sm" style="margin-left:10px"
+            title="Quietly score every position in the tree at depth 12 in the background, so the arrows stay graded without pressing Scan">
+            <input type="checkbox" id="autoEval" checked><span>auto</span></label>
+        </div>
+        <div class="engine">
+          <div class="top-row" id="etop"><span class="escore" id="escore">—</span>
+            <span class="emeta" id="emeta"></span></div>
+          <p class="enote" id="eoff">Switch Stockfish on for an evaluation and its best lines.</p>
+          <div class="pvlist" id="pvlist"></div>
+          <p class="enote" id="enote"></p>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="phead"><h2>Move tree</h2><span class="n" id="nodeCount"></span></div>
+        <div class="lineacts">
+          <button class="b sm" id="name">Name line…</button>
+          <button class="b sm" id="comment">Note…</button>
+          <button class="b sm" id="promote">Make main line</button>
+          <button class="b sm" id="del">Delete branch</button>
+        </div>
+        <div class="tabs" id="viewTabs"></div>
+        <div id="tree"></div>
+        <div id="viewHost"></div>
+        <div class="grip" id="treeGrip" title="Drag to resize the move tree"><span></span><em>drag to resize</em></div>
+      </div>
+      <details class="panel fold" id="ioPanel">
+        <summary class="phead"><h2>Position &amp; import</h2>
+          <svg class="chev" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 4l4 4 4-4"/></svg></summary>
         <div class="io">
           <label for="fen">FEN — current position</label>
-          <div class="row"><input class="t" id="fen" spellcheck="false" style="flex:1;min-width:220px">
+          <div class="row"><input class="t" id="fen" spellcheck="false" style="flex:1;min-width:200px">
             <button class="b" id="loadFen">Load FEN</button>
             <button class="b" id="copyFen">Copy</button></div>
           <label for="pgn">PGN — a single line or a whole tree with variations</label>
@@ -337,60 +474,23 @@ textarea{min-height:92px}
           </div>
           <p class="hint-txt">Names travel with the PGN as <code>{[%name Bishop's Opening]}</code>, so your labels survive an export.</p>
         </div>
-      </div>
-    </div>
-
-    <div class="vgrip" id="railGrip" title="Drag to widen the panel — double-click to reset"><i></i></div>
-
-    <div>
-      <div class="panel">
-        <div class="phead"><h2>Stockfish</h2>
-          <label class="switch"><input type="checkbox" id="engineOn"><span id="engineState">off</span></label>
-          <label class="switch sm" style="margin-left:10px"
-            title="Quietly score every position in the tree at depth 12 in the background, so the arrows stay graded without pressing Scan">
-            <input type="checkbox" id="autoEval" checked><span>auto</span></label>
-        </div>
-        <div class="engine">
-          <div class="top-row"><span class="escore" id="escore">—</span>
-            <span class="emeta" id="emeta"></span></div>
-          <div class="pvlist" id="pvlist"></div>
-          <p class="enote" id="enote"></p>
-        </div>
-      </div>
-      <div class="panel">
-        <div class="phead"><h2>Move tree</h2><span class="n" id="nodeCount"></span></div>
-        <div class="tabs" id="viewTabs"></div>
-        <div id="tree"></div>
-        <div id="viewHost"></div>
-        <div class="grip" id="treeGrip" title="Drag to resize the move tree"><span></span><em>drag to resize</em></div>
-      </div>
-      <div class="panel">
-        <div class="phead"><h2>Named lines</h2><span class="n" id="lineCount"></span></div>
-        <div id="lines"></div>
-      </div>
-      <div class="panel">
-        <div class="phead"><h2>Library</h2><span class="n" id="libState">in memory</span></div>
-        <div class="io">
-          <div class="row" id="studyRow">
-            <input class="t" id="studyName" style="flex:1;min-width:150px" placeholder="Study name" spellcheck="false">
-            <button class="b primary" id="saveStudy">Save</button>
-            <button class="b" id="saveAsStudy">Save as new</button>
-            <button class="b" id="signOut" title="Sign out — this session keeps working, it just stops saving">Sign out</button>
-          </div>
-          <div class="row" id="toolRow">
-            <button class="b" id="copyLink" title="Copy a link to this study and position">Copy link</button>
-            <button class="b" id="setLanding" title="Open this study at the current position from now on">Set landing here</button>
-          </div>
-          <div id="studyList"></div>
-          <p class="hint-txt" id="landingNote"></p>
-          <p class="hint-txt" id="libNote"></p>
-        </div>
-      </div>
+      </details>
     </div>
   </div>
 </div>
 <div id="ghost"></div>
 <div class="toast" id="toast"></div>
+<dialog class="dlg" id="dlg" aria-labelledby="dlgTitle">
+  <form id="dlgForm" method="dialog">
+    <h2 id="dlgTitle"></h2>
+    <p id="dlgText"></p>
+    <input class="t" id="dlgInput" spellcheck="false" autocomplete="off">
+    <div class="row">
+      <button type="button" class="b" id="dlgCancel">Cancel</button>
+      <button type="submit" class="b primary" id="dlgOk">OK</button>
+    </div>
+  </form>
+</dialog>
 
 <script>
 "use strict";
@@ -851,7 +951,7 @@ function renderBoard(){
   $("next").disabled=!cur.children.length; $("last").disabled=!cur.children.length;
   $("promote").disabled=!cur.parent||cur.parent.children[0]===cur;
   $("del").disabled=!cur.parent;
-  $("name").textContent=cur.parent?(cur.name?"Rename line…":"Name this line…"):"Name the study…";
+  $("name").textContent=cur.parent?(cur.name?"Rename line…":"Name line…"):"Name study…";
 }
 
 function mvSpan(node,forceNum){
@@ -900,7 +1000,14 @@ function renderTree(){
   } else t.appendChild(buildLine(root,false));
   $("nodeCount").textContent=(allNodes().length-1)+" moves";
   renderLines();
-  const c=t.querySelector(".mv.cur"); if(c&&c.scrollIntoView) c.scrollIntoView({block:"nearest"});
+  /* Bring the current move into view by scrolling the tree pane only. scrollIntoView would
+     scroll the page as well whenever the pane reaches below the fold, which on load dragged
+     the whole window down to the tree. */
+  const c=t.querySelector(".mv.cur");
+  if(!c) t.scrollTop=0;                    // at the start position: the top of the tree
+  else { const b=t.getBoundingClientRect(), r=c.getBoundingClientRect();
+    if(r.top<b.top) t.scrollTop+=r.top-b.top-8;
+    else if(r.bottom>b.bottom) t.scrollTop+=r.bottom-b.bottom+8; }
 }
 function renderLines(){
   const el=$("lines"); el.textContent="";
@@ -908,21 +1015,27 @@ function renderLines(){
   $("lineCount").textContent=named.length?named.length+" named":"";
   if(!named.length){
     const p=document.createElement("p"); p.className="none";
-    p.textContent="Nothing named yet. Walk to a position, hit “Name this line”, and it lands here.";
+    p.textContent="Nothing named yet. Walk to a position, hit “Name line…” above the move tree, and it lands here.";
     el.appendChild(p); return;
   }
   for(const n of named){
     const row=document.createElement("div"); row.className="li"+(n===cur?" cur":"");
     const nm=document.createElement("span"); nm.className="nm"; nm.textContent=n.name;
+    /* The moves are cut at the START when they do not fit (see #lines .pv), so the row shows
+       where the line ends up; the whole line is in the tooltip. */
     const pv=document.createElement("span"); pv.className="pv";
-    pv.textContent=pathTo(n).map(x=>{const mn=moveNumber(x);return (mn.white?mn.no+".":"")+x.san}).join(" ");
+    const mvs=document.createElement("bdi"); mvs.dir="ltr";
+    mvs.textContent=pathTo(n).map(x=>{const mn=moveNumber(x);return (mn.white?mn.no+".":"")+x.san}).join(" ");
+    pv.appendChild(mvs); pv.title=mvs.textContent;
     row.appendChild(nm); row.appendChild(pv);
     row.onclick=()=>{cur=n;sel=null;renderAll()};
     el.appendChild(row);
   }
 }
 let analyzeT;
-function renderAll(){ metricsRun++; previewNode=null; renderBoard(); renderTree(); updateActiveView(); save();
+/* renderAll() redraws; it never saves. Moving through the tree is not an edit — only the paths
+   that change the study's content call changed(), which is what schedules the autosave. */
+function renderAll(){ metricsRun++; previewNode=null; renderBoard(); renderTree(); updateActiveView();
   clearTimeout(analyzeT); analyzeT=setTimeout(analyze,120);
   clearTimeout(bgT); bgT=setTimeout(bgRefill,220);
   clearTimeout(hashT); hashT=setTimeout(syncHash,150);
@@ -1030,7 +1143,7 @@ function toggleShape(sh){
     if(cur.shapes[hit].color===sh.color) cur.shapes.splice(hit,1);
     else cur.shapes[hit].color=sh.color;
   } else cur.shapes.push(sh);
-  renderShapes(); save();
+  renderShapes(); changed();
 }
 let pendingArrow=null;
 let previewNode=null;          // optional single-move override (views may use RT.previewMove)
@@ -1123,7 +1236,13 @@ function tryMove(from,to){
   const cands=legalCache.filter(m=>m.from.r===from.r&&m.from.c===from.c&&m.to.r===to.r&&m.to.c===to.c);
   if(!cands.length) return false;
   if(cands.length>1&&cands[0].promo){ askPromo(cands); return true; }
-  cur=playMove(cur,cands[0]); sel=null; renderAll(); return true;
+  playAndGo(cands[0]); return true;
+}
+/* Playing a move the tree already has is navigation; playing a new one is an edit. */
+function playAndGo(m){
+  const from=cur, before=from.children.length;
+  cur=playMove(from,m); sel=null; renderAll();
+  if(from.children.length!==before) changed();
 }
 function askPromo(cands){
   const white=stateOf(cur).turn==="w";
@@ -1133,7 +1252,7 @@ function askPromo(cands){
     const b=document.createElement("button");
     const g=pieceSVG((white?"w":"b")+q); g.classList.remove("pc");
     b.appendChild(g); b.title=q;
-    b.onclick=()=>{ $("promo").style.display="none"; cur=playMove(cur,m); sel=null; renderAll(); };
+    b.onclick=()=>{ $("promo").style.display="none"; playAndGo(m); };
     box.appendChild(b);
   }
   $("promo").style.display="flex";
@@ -1205,6 +1324,7 @@ const go={
 };
 ["first","prev","next","last"].forEach(k=>{ $(k).onclick=()=>{go[k]();sel=null;renderAll()} });
 document.addEventListener("keydown",e=>{
+  if(dlg.open) return;                     // the dialog owns the keyboard while it is up
   if(/input|textarea/i.test(e.target.tagName)) return;
   const map={ArrowLeft:"prev",ArrowRight:"next",ArrowUp:"first",ArrowDown:"last",Home:"first",End:"last"};
   if(map[e.key]){ e.preventDefault(); go[map[e.key]](); sel=null; renderAll(); }
@@ -1212,23 +1332,13 @@ document.addEventListener("keydown",e=>{
 });
 $("flip").onclick=()=>setFlipped(!flipped);
 /* One door for the flip: the board, the evaluation bar and any view drawing mini boards all
-   read `flipped`, so they all have to be told, and the study has to be told too. */
+   read `flipped`, so they all have to be told, and the study has to be told too — the
+   orientation is part of the study, so a flip is an edit and autosaves like one. */
 function setFlipped(v){
   flipped=!!v;
   if(root) root.flipped=flipped;
-  renderBoard(); renderEngine(); updateActiveView(); save();
-  persistFlip();
-}
-/* Saving the whole study for a board rotation is heavy-handed, so it is debounced and quiet —
-   no toast, and a failure is not worth interrupting anyone over: the orientation is still
-   right on screen and rides along with the next real save. */
-let flipSaveT;
-function persistFlip(){
-  if(!authed||!studyId) return;
-  clearTimeout(flipSaveT);
-  flipSaveT=setTimeout(()=>{
-    api("/studies/"+studyId,{method:"PUT",body:JSON.stringify(studyPayload())}).catch(e=>{});
-  },600);
+  renderBoard(); renderEngine(); updateActiveView();
+  changed();
 }
 $("autoEval").addEventListener("change",e=>{
   bgOn=e.target.checked;
@@ -1246,47 +1356,77 @@ $("treeArrows").addEventListener("change",e=>{
   try{ localStorage.setItem("repertoire-treearrows",treeArrowsOn?"1":"0"); }catch(err){}
   renderPreview();
 });
-$("reset").onclick=()=>{ if(!confirm("Clear the whole study and start from the initial position?")) return;
-  newStudy(START); renderAll(); toast("New study"); };
+/* New study, Load FEN and Load PGN all start a NEW study. Signed in, that means a name first
+   and a POST after (createStudy) — never a write over whichever study was open. Signed out
+   they just replace the board in memory. */
+$("reset").onclick=async ()=>{
+  if(authed){
+    if(await createStudy({title:"New study",text:"An empty board, saved to your library as you go.",
+      build:()=>newStudy(START)})) toast("New study “"+$("studyName").value+"”");
+    return;
+  }
+  if(!await confirmDialog({title:"New study",ok:"Clear the board",
+    text:"Clear the whole board and start from the initial position? Nothing here is saved."})) return;
+  detachStudy(); newStudy(START); renderAll(); renderLanding(); changed(); toast("New study");
+};
 
-function nameLine(){
-  const v=prompt(cur.parent?"Name for the line ending at "+cur.san+":":"Name for this study:",cur.name||"");
+async function nameLine(){
+  const node=cur;
+  const v=await askDialog({title:node.parent?"Name this line":"Name the study",
+    text:node.parent?"Name for the line ending at "+node.san+". Leave it empty to remove the name.":"A name for the study's starting position.",
+    value:node.name||"",ok:"Save name"});
   if(v===null) return;
-  cur.name=v.trim().replace(/[{}\]]/g,"");
-  renderAll(); toast(cur.name?"Named “"+cur.name+"”":"Name removed");
+  node.name=v.trim().replace(/[{}\]]/g,"");
+  renderAll(); changed(); toast(node.name?"Named “"+node.name+"”":"Name removed");
 }
 $("name").onclick=nameLine;
-$("comment").onclick=()=>{
-  const v=prompt("Note for this position:",cur.comment||"");
+$("comment").onclick=async ()=>{
+  const node=cur;
+  const v=await askDialog({title:"Note",text:"Note for this position. Leave it empty to remove the note.",
+    value:node.comment||"",ok:"Save note"});
   if(v===null) return;
-  cur.comment=v.trim().replace(/[{}]/g,""); renderAll();
+  node.comment=v.trim().replace(/[{}]/g,""); renderAll(); changed();
 };
 $("promote").onclick=()=>{
   const p=cur.parent; if(!p) return;
   p.children=[cur].concat(p.children.filter(c=>c!==cur));
-  renderAll(); toast("Promoted to main line");
+  renderAll(); changed(); toast("Promoted to main line");
 };
-$("del").onclick=()=>{
-  const p=cur.parent; if(!p) return;
-  if(!confirm("Delete "+cur.san+" and everything after it?")) return;
-  p.children=p.children.filter(c=>c!==cur); cur=p; sel=null; renderAll();
+$("del").onclick=async ()=>{
+  const node=cur, p=node.parent; if(!p) return;
+  if(!await confirmDialog({title:"Delete branch",text:"Delete "+node.san+" and everything after it?",
+    ok:"Delete",danger:true})) return;
+  p.children=p.children.filter(c=>c!==node); if(cur===node){ cur=p; sel=null; } renderAll(); changed();
 };
 
-$("loadFen").onclick=()=>{
+$("loadFen").onclick=async ()=>{
+  let fen;
   try{ const s=fromFEN($("fen").value); if(!kingSq(s.board,"w")||!kingSq(s.board,"b")) throw new Error("both kings must be on the board");
-    newStudy(toFEN(s)); renderAll(); toast("Position loaded"); }
-  catch(err){ toast("That FEN doesn’t parse — "+err.message); }
+    fen=toFEN(s); }
+  catch(err){ toast("That FEN doesn’t parse — "+err.message); return; }
+  if(authed){
+    if(await createStudy({title:"New study from this position",build:()=>newStudy(fen)})) toast("Position loaded");
+    return;
+  }
+  detachStudy(); newStudy(fen); renderAll(); renderLanding(); changed(); toast("Position loaded");
 };
 $("copyFen").onclick=()=>copy($("fen").value,"FEN copied");
 $("loadPgn").onclick=()=>doImport(false);
 $("mergePgn").onclick=()=>doImport(true);
-function doImport(merge){
+/* Merge here is an edit of the open study; Load PGN is a new study (see $("reset") above). */
+async function doImport(merge){
   const txt=$("pgn").value.trim();
   if(!txt){ toast("Paste a PGN first"); return; }
+  const done=r=>toast(r.added+" moves "+(merge?"merged":"loaded")+(r.failed?" · "+r.failed+" tokens skipped":""));
+  if(!merge&&authed){
+    let r=null;
+    if(await createStudy({title:"New study from this PGN",build:()=>{ r=importPGN(txt,false); }})) done(r);
+    return;
+  }
   try{
+    if(!merge) detachStudy();
     const r=importPGN(txt,merge);
-    renderAll();
-    toast(r.added+" moves "+(merge?"merged":"loaded")+(r.failed?" · "+r.failed+" tokens skipped":""));
+    renderAll(); if(!merge) renderLanding(); changed(); done(r);
   }catch(err){ toast("Couldn’t read that PGN: "+err.message); }
 }
 $("exportPgnBtn").onclick=()=>{ const p=exportPGN(); $("pgn").value=p; copy(p,"PGN copied to clipboard"); };
@@ -1320,20 +1460,25 @@ let sf=null, sfUp=false, sfOn=false, sfSearching=false, sfPending=null, sfRunnin
 let sfPV={}, sfDepth=0, sfNps=0;
 
 function sfSend(cmd){ if(sf) sf.postMessage(cmd); }
-function engineNote(html){ const n=$("enote"); n.textContent=""; if(!html) return;
-  n.innerHTML=html; }
+function engineNote(html){ const n=$("enote"); n.textContent=""; if(html) n.innerHTML=html; renderEngineIdle(); }
+/* Engine off: no score row, just a line saying how to get one — unless a note already says
+   why the engine is not running (file://, failed to load), which is the better hint. */
+function renderEngineIdle(){
+  $("etop").hidden=!sfOn;
+  $("eoff").hidden=sfOn||!!$("enote").textContent;
+}
 function setEngineState(txt){ $("engineState").textContent=txt; }
 
 function startEngine(){
   if(sf) return true;
   if(location.protocol==="file:"){
     engineNote('Stockfish needs a Web Worker, which browsers block on <code>file://</code>. Run <code>./serve.sh</code> and open <code>localhost:8000</code>.');
-    setEngineState("blocked"); $("engineOn").checked=false; sfOn=false; return false;
+    setEngineState("blocked"); $("engineOn").checked=false; sfOn=false; renderEngineIdle(); return false;
   }
   try{ sf=new Worker(SF_PATH); }
   catch(err){ engineNote("Could not start the engine worker: "+err.message); setEngineState("error"); return false; }
   sf.onerror=()=>{ engineNote('Engine failed to load. Is <code>'+SF_PATH+'</code> being served?');
-    setEngineState("error"); sf=null; sfUp=false; sfOn=false; $("engineOn").checked=false; };
+    setEngineState("error"); sf=null; sfUp=false; sfOn=false; $("engineOn").checked=false; renderEngineIdle(); };
   sf.onmessage=ev=>handleUCI(typeof ev.data==="string"?ev.data:(ev.data&&ev.data.data)||"");
   setEngineState("loading…"); engineNote("Loading Stockfish (7 MB, first time only)…");
   sfSend("uci");
@@ -1433,14 +1578,14 @@ function renderEngine(){
     $("escore").className="escore";
     $("emeta").textContent=sfOn&&sfUp?"thinking":"";
     bar.classList.add("off"); bar.classList.toggle("flip",flipped); fill.style.height="50%";
-    renderEngineArrows();
+    renderEngineIdle(); renderEngineArrows();
     return;
   }
   const sc=whiteScore(best,s.turn);
   $("escore").textContent=fmtScore(sc);
   $("escore").className="escore "+((sc.mate!==undefined?sc.mate>0:sc.cp>=0)?"plus":"minus");
   $("emeta").textContent="depth "+sfDepth+(sfNps?" · "+Math.round(sfNps/1000)+"k n/s":"");
-  bar.classList.remove("off");
+  bar.classList.remove("off"); renderEngineIdle();
   const pct=winPct(sc);
   bar.classList.toggle("flip",flipped);
   fill.style.height=pct+"%";
@@ -1496,7 +1641,7 @@ function addPVToTree(uciList){
     const m=findSAN(stateOf(node),u); if(!m) break;
     node=playMove(node,m);
   }
-  cur=startedAt; renderAll();
+  cur=startedAt; renderAll(); changed();
   toast("Engine line added as a variation");
 }
 $("engineOn").addEventListener("change",e=>{
@@ -1512,11 +1657,14 @@ function serialize(){
   return JSON.stringify({v:1,start:root.startFEN||START,landing:root.landing||[],
     flipped:!!root.flipped,tree:walk(root),path:pathTo(cur).map(n=>n.san)});
 }
-/* Signed out, nothing is written down. The board still works — every edit lives in memory and
-   goes away on refresh. Signed in, localStorage is a local working copy of the open study, so a
-   reload picks up where you were without a round trip. Cosmetic preferences (view, panel sizes,
-   the engine toggle, the eval cache) are NOT study content and stay local either way. */
-function save(){ if(!authed) return; try{ localStorage.setItem("repertoire-table-v3",serialize()); }catch(e){} }
+/* The server is the only place study content lives. Signed in, every edit autosaves to it (see
+   "autosave" below); signed out, nothing is written down — the board works the same, in memory,
+   and is gone on refresh. There used to be a localStorage working copy of the open tree
+   (`repertoire-table-v3`); with autosave it could only ever be a stale second opinion about a
+   study the server already has, so it is gone, and the key is cleared on every load.
+   What this browser does keep is not content: which study you had open last (per user) and
+   where you were in each one (resume). Cosmetic preferences (view, panel sizes, the engine
+   toggle, the eval cache) stay local either way. */
 function forgetLocalStudy(){
   try{
     localStorage.removeItem("repertoire-table-v3");
@@ -1542,16 +1690,13 @@ function hydrate(d){
   for(const san of (d.path||[])){ const nx=cur.children.find(c=>c.san===san); if(!nx) break; cur=nx; }
   return true;
 }
-function load(){
-  if(!authed) return false;
-  let raw; try{ raw=localStorage.getItem("repertoire-table-v3"); }catch(e){ return false; }
-  if(!raw) return false;
-  try{ return hydrate(JSON.parse(raw)); }catch(e){ return false; }
-}
 
 /* ---------------------------- shareable URLs ---------------------------- */
 /* #s=<study id>&p=<san>/<san>/...  — the study and the exact position in it */
-let hashLock=false, hashT;
+let hashLock=false, hashT, booted=false;
+/* Read once, before anything renders: renderAll() syncs the hash 150ms later, and until boot has
+   opened the linked study that sync would rewrite #s=… into a hash for the in-memory seed. */
+const bootHashRaw=location.hash;
 function currentHash(){
   const parts=[];
   if(studyId) parts.push("s="+studyId);
@@ -1560,14 +1705,15 @@ function currentHash(){
   return parts.length?"#"+parts.join("&"):"";
 }
 function syncHash(){
+  if(!booted) return;
   const h=currentHash();
   if(h===location.hash||(!h&&!location.hash)) return;
   hashLock=true;
   try{ history.replaceState(null,"",h||location.pathname+location.search); }catch(e){}
   setTimeout(()=>{hashLock=false;},0);
 }
-function parseHash(){
-  const raw=location.hash.replace(/^#/,"");
+function parseHash(raw){
+  raw=(raw===undefined?location.hash:raw).replace(/^#/,"");
   if(!raw) return null;
   const out={};
   for(const kv of raw.split("&")){ const i=kv.indexOf("="); if(i>0) out[kv.slice(0,i)]=kv.slice(i+1); }
@@ -1586,15 +1732,17 @@ function walkTo(pathStr){
   cur=n; sel=null; renderAll();
   return missed===0;
 }
-async function applyHash(){
-  const q=parseHash(); if(!q) return;
+async function applyHash(q){
+  q=q===undefined?parseHash():q; if(!q) return;
   if(q.s&&+q.s!==studyId){
-    if(!authed){ toast("That link points at a saved study, which this session cannot reach"); }
-    else if(!await openStudy(+q.s,true)) return;
+    if(!authed){
+      toast(canSignIn()?"That link points at a saved study — sign in to open it"
+                       :"That link points at a saved study, which this session cannot reach");
+    } else { await openStudy(+q.s,{fromLink:true,path:q.p}); return; }
   }
   if(q.p&&!walkTo(q.p)) toast("Link points at a move that is not in this study");
 }
-window.addEventListener("hashchange",()=>{ if(!hashLock) applyHash(); });
+window.addEventListener("hashchange",()=>{ if(!hashLock&&booted) applyHash(); });
 
 /* ------- landing position (saved with the study) and resume (this browser) ------- */
 const resumeKey=id=>"repertoire-resume-"+(id||"local");
@@ -1633,8 +1781,7 @@ function renderLanding(){
   el.append("Lands on ",b," ");
   const clr=document.createElement("button");
   clr.className="b"; clr.style.padding="0 6px"; clr.style.fontSize="11px"; clr.textContent="clear";
-  clr.onclick=()=>{ root.landing=[]; renderLanding(); save();
-    if(studyId&&authed) saveStudy(false); else toast("Landing cleared"); };
+  clr.onclick=()=>{ root.landing=[]; renderLanding(); changed(); toast("Landing cleared"); };
   el.append(clr);
 }
 
@@ -1642,18 +1789,22 @@ function renderLanding(){
 /* apiUp: a server is answering.  authed: it knows who we are and will accept writes.
    They are separate — the app is fully usable in the gap between them, just amnesiac.
    guest: signed in through the central login without access to studies — the same amnesiac app,
-   but named, and told why nothing saves. */
-let apiUp=false, authed=false, guest=false, authUser=null, studyId=null;
+   but named, and told why nothing saves.  hasAccounts: /api/me answered at all; the retired
+   Python backend 404s it, and a server that cannot sign anyone in gets no Sign in button.
+   Studies are per user: the Library lists only yours, and only yours can be written. A study
+   reached through someone else's #s= link opens with owned=false — explorable, never saved. */
+let apiUp=false, authed=false, guest=false, hasAccounts=false, authUser=null;
+let studyId=null, studyOwned=false;
 const api=(path,opts)=>fetch("/api"+path,Object.assign({credentials:"same-origin",
     headers:{"Content-Type":"application/json"}},opts))
   .then(async r=>{
     /* The session can lapse under us — a 30-day cookie outlives plenty of open tabs. Fold that
        back into the UI here rather than letting every caller discover it separately. */
-    if(r.status===401&&(authed||guest)){ authed=false; guest=false; authUser=null; renderAuth();
-      toast("Session expired — sign in again at /login to keep saving"); }
+    if(r.status===401&&(authed||guest)){ authed=false; guest=false; authUser=null; dropPendingSaves(); renderAuth();
+      toast("Session expired — sign in again to keep saving"); }
     /* Access can also be taken away mid-session (roles are re-checked at the identity provider):
        still signed in, no longer allowed to save. */
-    if(r.status===403&&authed){ authed=false; guest=true; studyId=null; forgetLocalStudy(); renderAuth();
+    if(r.status===403&&authed){ authed=false; guest=true; detachStudy(); dropPendingSaves(); forgetLocalStudy(); renderAuth();
       toast("Saving is no longer available on this account — ask the owner for access"); }
     if(r.status===204) return null;
     const body=await r.text();
@@ -1661,7 +1812,8 @@ const api=(path,opts)=>fetch("/api"+path,Object.assign({credentials:"same-origin
        plain text, and parsing that blind turns a readable failure into "Unexpected token '<'". */
     if(!r.ok){ let detail=null;
       try{ detail=body?JSON.parse(body).detail:null; }catch(e){}
-      throw new Error(detail||(r.status===403?"no access — ask the owner for access":("Server error "+r.status))); }
+      const err=new Error(detail||(r.status===403?"no access — ask the owner for access":("Server error "+r.status)));
+      err.status=r.status; throw err; }
     return body?JSON.parse(body):null; });
 
 function studyPayload(){
@@ -1669,65 +1821,209 @@ function studyPayload(){
   doc.tree.path=doc.path;              // the server counts `children` from the root it is given
   doc.tree.landing=root.landing||[];   // rides along with the tree, no schema change needed
   doc.tree.flipped=!!root.flipped;     // same trick for the board orientation
-  return {name:($("studyName").value.trim()||"Untitled study"),
+  return {name:($("studyName").value.trim()||"Untitled Study"),
     start_fen:doc.start, tree:doc.tree, pgn:exportPGN()};
 }
+
+/* ---------------------------- autosave ----------------------------
+   There is no Save button. Every path that changes the study's content calls changed(); moving
+   through the tree does not. changed() debounces, then capture() snapshots the open study into
+   the outbox UNDER THE ID IT BELONGS TO, and pump() PUTs the outbox. Because the id is fixed at
+   capture time, nothing can land on the wrong study: anything that replaces the board
+   (openStudy, createStudy, sign-out) calls capture() first, so pending edits leave under the
+   old id, and only then is studyId changed. Last write wins (no conflict check, by design);
+   failures retry with backoff and say so in the label beside the name, never in a toast. */
+const AUTOSAVE_MS=800;
+const outbox=new Map();          // study id -> payload awaiting its PUT (the newest one wins)
+let dirty=false, saveT=null, pumping=false, retryT=null, saveFails=0, touched=false, creating=false;
+const canAutosave=()=>authed&&studyId!=null&&studyOwned;
+function changed(){
+  touched=true;                  // signed out, this is what makes the board worth stashing at sign-in
+  if(!authed) return;
+  dirty=true;
+  if(canAutosave()){ clearTimeout(saveT); saveT=setTimeout(capture,AUTOSAVE_MS); }
+  renderSaveState();
+}
+function capture(){
+  clearTimeout(saveT); saveT=null;
+  if(dirty&&canAutosave()){ outbox.set(studyId,studyPayload()); pump(); }
+  dirty=false;
+}
+async function pump(){
+  if(pumping||retryT) return;    // a scheduled retry will come back here itself
+  pumping=true; renderSaveState();
+  try{
+    while(outbox.size&&authed){
+      const [id,body]=outbox.entries().next().value;
+      try{
+        await api("/studies/"+id,{method:"PUT",body:JSON.stringify(body)});
+        if(outbox.get(id)===body) outbox.delete(id);
+        saveFails=0;
+      }catch(e){
+        if(e.status===404||e.status===401||e.status===403){
+          /* Not a blip: the study is gone, or is not ours to write. Retrying cannot help. */
+          outbox.delete(id);
+          if(e.status===404&&id===studyId){ studyOwned=false; renderAuth();
+            toast("This study can no longer be saved here — Clone it to keep your changes"); }
+          continue;
+        }
+        saveFails++;
+        retryT=setTimeout(()=>{ retryT=null; pump(); },Math.min(60000,1000*2**Math.min(saveFails,6)));
+        break;
+      }
+    }
+  }finally{
+    pumping=false; renderSaveState();
+    if(!outbox.size&&!retryT) refreshStudies();     // the list shows updated_at and move counts
+  }
+}
+function dropPendingSaves(){
+  outbox.clear(); dirty=false; clearTimeout(saveT); saveT=null;
+  clearTimeout(retryT); retryT=null; saveFails=0;
+}
+/* Leaving the page (or the tab going to the background, which on a phone is often the last
+   chance): send whatever is pending now, with keepalive so the request outlives the page.
+   keepalive bodies are capped at 64 KiB per page, so a bigger tree goes as a plain fetch — fine
+   on visibilitychange, where the page is still alive, best-effort on a real unload. */
+const sentOnHide=new WeakSet();
+function flushOnHide(){
+  if(dirty&&canAutosave()){ clearTimeout(saveT); saveT=null; outbox.set(studyId,studyPayload()); dirty=false; }
+  if(!authed) return;
+  for(const [id,body] of outbox){
+    if(sentOnHide.has(body)) continue;
+    sentOnHide.add(body);
+    const json=JSON.stringify(body);
+    let small=true; try{ small=new TextEncoder().encode(json).length<60000; }catch(e){}
+    fetch("/api/studies/"+id,{method:"PUT",credentials:"same-origin",keepalive:small,
+      headers:{"Content-Type":"application/json"},body:json})
+      .then(r=>{ if(r.ok&&outbox.get(id)===body){ outbox.delete(id); renderSaveState(); } })
+      .catch(()=>{});
+  }
+}
+document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="hidden") flushOnHide(); });
+window.addEventListener("pagehide",flushOnHide);
+window.addEventListener("online",()=>{ if(retryT){ clearTimeout(retryT); retryT=null; pump(); } });
+
+function renderSaveState(){
+  const el=$("saveState"); if(!el) return;
+  let t="", err=false;
+  if(apiUp&&authed){
+    const pending=dirty||outbox.has(studyId);
+    if(creating) t="Saving…";
+    else if(studyId==null) t="Not saved — Save as a study to keep it";
+    else if(!studyOwned) t="Read-only — Clone to keep your own copy";
+    else if(pending&&retryT){ t="Couldn’t save — retrying"; err=true; }
+    else if(pending) t="Saving…";
+    else t="Saved";
+  }
+  el.textContent=t; el.classList.toggle("err",err);
+}
+/* What the Library row offers depends on the open study: yours can be renamed in place and
+   autosaves; someone else's is read-only and offers a copy; an unsaved board offers to become
+   a study. */
+function renderStudyMeta(){
+  const nm=$("studyName"), cl=$("cloneStudy");
+  nm.readOnly=!!(studyId!=null&&!studyOwned);
+  nm.title=nm.readOnly?"This study belongs to someone else — Clone it to rename your copy":"Rename the study — saved as you type";
+  cl.textContent=studyId==null?"Save as a study…":"Clone…";
+  cl.classList.toggle("primary",studyId==null||!studyOwned);
+  renderSaveState();
+}
+/* The board on screen is no longer any saved study (signed-out replace, lost access). */
+function detachStudy(){ studyId=null; studyOwned=false; }
+
+/* ---- last-opened study, per browser and per user ---- */
+const lastKey=()=>"repertoire-last-study:"+(authUser||"");
+function rememberLast(id){ try{ localStorage.setItem(lastKey(),String(id)); }catch(e){} }
+function readLast(){ try{ const v=parseInt(localStorage.getItem(lastKey()),10); return v>0?v:null; }catch(e){ return null; } }
+function forgetLast(id){ try{ if(readLast()===id) localStorage.removeItem(lastKey()); }catch(e){} }
+
 async function checkAPI(){
   try{ const h=await api("/health"); apiUp=!!(h&&h.ok); }
   catch(e){ apiUp=false; }
 
+  hasAccounts=false;
   if(apiUp){
     /* /api/me is 404 on the old Python backend, which throws here and leaves authed false —
        exactly the right answer: that server has no accounts, so nothing can be saved to it. */
-    try{ const me=await api("/me"); const known=!!(me&&me.authed);
+    try{ const me=await api("/me"); hasAccounts=true; const known=!!(me&&me.authed);
       authed=known&&me.can_save!==false; guest=known&&!authed; authUser=known?(me.user||null):null; }
     catch(e){ authed=false; guest=false; authUser=null; }
   } else { authed=false; guest=false; authUser=null; }
 
   /* Signed out means nothing is stored — however you got here. Signing out through /logout is a
      server redirect that never runs signOut() below, and a cookie can simply expire, so the
-     invariant is enforced on every load rather than only on the button. */
+     invariant is enforced on every load rather than only on the button. The legacy working-copy
+     key goes either way (see "persistence"). */
   if(!authed) forgetLocalStudy();
+  else try{ localStorage.removeItem("repertoire-table-v3"); }catch(e){}
 
   renderAuth();
-  if(authed) await refreshStudies();
 }
-/* One place decides what the Library panel looks like.
-   Signed out there is no prompt, no hint and no mention of an account — the panel simply says
-   the session is in memory. Sign-in lives at /login and is not advertised from here. */
+const canSignIn=()=>apiUp&&hasAccounts&&!authed&&!guest;
+/* One place decides what the header's account corner and the Library panel look like.
+   Signed out (against a server that has accounts) the header offers Sign in; signed in, or as
+   a guest, it shows who you are and Sign out. */
 function renderAuth(){
   const signedIn=apiUp&&authed, asGuest=apiUp&&guest;
-  /* A guest keeps the row for its Sign out button; Save stays visibly there but disabled. */
-  $("studyRow").style.display=(signedIn||asGuest)?"":"none";
+  $("who").textContent=signedIn?(authUser||"signed in"):asGuest?((authUser||"signed in")+" (guest)"):"";
+  $("signIn").hidden=!canSignIn();
+  $("signOut").hidden=!(signedIn||asGuest);
+  $("studyRow").hidden=!signedIn;
+  $("cloneStudy").hidden=!signedIn;
   $("studyList").style.display=signedIn?"":"none";
   $("landingNote").style.display=signedIn?"":"none";
-  $("saveStudy").disabled=!signedIn; $("saveAsStudy").disabled=!signedIn;
-  const noAccess=asGuest?"Guests cannot save studies — ask the owner for access":"";
-  $("saveStudy").title=noAccess; $("saveAsStudy").title=noAccess;
-
-  $("libState").textContent=signedIn?("signed in as "+(authUser||"you"))
-    :asGuest?("signed in as "+(authUser||"you")+" (guest)"):"in memory";
+  $("libState").textContent=signedIn?"your studies":"in memory";
   $("libNote").textContent=signedIn?""
     :asGuest?"Saving studies needs access this account does not have yet — ask the owner for access. "
              +"Until then this session lives in memory, and is gone on refresh."
-    :"This session lives in memory. Studies you build here are gone on refresh.";
+    :"This session lives in memory. Studies you build here are gone on refresh."
+      +(canSignIn()?" Sign in to keep them.":"");
   if(!signedIn) $("studyList").textContent="";
+  renderStudyMeta();
 }
+
+/* ---- sign in: a round trip through /login, so the in-memory board rides in sessionStorage ---- */
+const STASH_KEY="repertoire-signin-stash";
+function signIn(){
+  try{ sessionStorage.setItem(STASH_KEY,JSON.stringify({
+    board:touched?serialize():null, name:$("studyName").value, hash:location.hash})); }catch(e){}
+  location.href="/login?next=/";
+}
+function takeStash(){
+  let st=null;
+  try{ const raw=sessionStorage.getItem(STASH_KEY); sessionStorage.removeItem(STASH_KEY);
+    st=raw?JSON.parse(raw):null; }catch(e){}
+  return st&&typeof st==="object"?st:null;
+}
+/* Back from /login with a board you had built signed out: offer to keep it. Accepting makes it
+   a new study of your own; declining throws it away. Returns true if a study was opened. */
+async function offerStash(st){
+  let doc; try{ doc=JSON.parse(st.board); }catch(e){ return false; }
+  return createStudy({title:"Keep the board you were working on?",
+    text:"You built this board before signing in. Keep it as a new study, or discard it.",
+    ok:"Keep as new study",cancel:"Discard",
+    build:()=>{ hydrate(doc); }});
+}
+
 async function signOut(){
+  capture();                                         // pending edits still leave under their own id
   try{ await api("/logout",{method:"POST"}); }catch(e){}
-  authed=false; guest=false; authUser=null; studyId=null;
+  authed=false; guest=false; authUser=null; detachStudy(); dropPendingSaves(); touched=false;
   /* The board on screen stays exactly as it is — you can keep working, it just stops being
-     written down anywhere. Drop the local copy so the next visitor to this browser gets none of it. */
+     written down anywhere. This signs out of this app only, not of the identity provider. */
   forgetLocalStudy();
   renderAuth(); syncHash();
   toast("Signed out — changes now stay in memory only");
 }
+/* Draws the Library list and hands back its rows (null when the server would not say). */
 async function refreshStudies(){
+  if(!authed) return null;
+  let rows;
+  try{ rows=await api("/studies"); }catch(e){ return null; }
   const list=$("studyList"); list.textContent="";
-  let rows=[];
-  try{ rows=await api("/studies"); }catch(e){ return; }
   if(!rows.length){ const p=document.createElement("p"); p.className="none";
-    p.textContent="No saved studies yet."; list.appendChild(p); return; }
+    p.textContent="No saved studies yet."; list.appendChild(p); return rows; }
   for(const r of rows){
     const row=document.createElement("div"); row.className="st"+(r.id===studyId?" cur":"");
     const nm=document.createElement("span"); nm.className="nm"; nm.textContent=r.name;
@@ -1735,58 +2031,166 @@ async function refreshStudies(){
     meta.textContent=r.move_count+" moves · "+r.updated_at.slice(0,16).replace("T"," ");
     const kill=document.createElement("button"); kill.className="kill"; kill.textContent="×";
     kill.title="Delete this study";
-    kill.onclick=async ev=>{ ev.stopPropagation();
-      if(!confirm("Delete “"+r.name+"” from the library?")) return;
-      try{ await api("/studies/"+r.id,{method:"DELETE"});
-        if(studyId===r.id) studyId=null;
-        toast("Deleted"); refreshStudies(); }catch(e){ toast("Delete failed: "+e.message); } };
+    kill.onclick=async ev=>{ ev.stopPropagation(); deleteStudy(r); };
     row.appendChild(nm); row.appendChild(meta); row.appendChild(kill);
-    row.onclick=()=>openStudy(r.id);
+    row.onclick=()=>{ if(r.id!==studyId) openStudy(r.id); };
     list.appendChild(row);
   }
+  return rows;
 }
-async function openStudy(id,fromLink){
-  try{
-    const rec=await api("/studies/"+id);
-    if(!hydrate({tree:rec.tree,start:rec.start_fen,path:rec.tree.path||[],
-                 landing:rec.tree.landing||[],flipped:!!rec.tree.flipped}))
-      throw new Error("stored tree is unreadable");
-    studyId=rec.id; $("studyName").value=rec.name;
-    sel=null;
-    renderEngine();          // the study may have arrived flipped; the bar follows the board
-    if(!(fromLink&&(parseHash()||{}).p)) goToStart(); else renderAll();
-    refreshStudies(); renderLanding();
-    if(!fromLink) toast("Opened “"+rec.name+"”");
-    return true;
-  }catch(e){ toast("Could not open: "+e.message); return false; }
+async function deleteStudy(r){
+  if(!await confirmDialog({title:"Delete study",text:"Delete “"+r.name+"” from your library? This cannot be undone.",
+    ok:"Delete",danger:true})) return;
+  outbox.delete(r.id);
+  try{ await api("/studies/"+r.id,{method:"DELETE"}); }
+  catch(e){ toast("Delete failed: "+e.message); return; }
+  forgetLast(r.id);
+  toast("Deleted “"+r.name+"”");
+  if(studyId===r.id){
+    /* The board on screen no longer belongs to anything — move on rather than leave an
+       unsaveable board looking like a study. */
+    dirty=false; clearTimeout(saveT); detachStudy(); renderStudyMeta();
+    await openFallback();
+  } else refreshStudies();
 }
-async function saveStudy(asNew){
-  if(!authed){ toast("This session is in memory only — nothing to save to"); return; }
-  const body=studyPayload();
-  try{
-    const rec=(studyId&&!asNew)
-      ? await api("/studies/"+studyId,{method:"PUT",body:JSON.stringify(body)})
-      : await api("/studies",{method:"POST",body:JSON.stringify(body)});
-    studyId=rec.id; $("studyName").value=rec.name;
-    toast(asNew||!studyId?"Saved as “"+rec.name+"”":"Saved");
-    refreshStudies(); syncHash();
-  }catch(e){ toast("Save failed: "+e.message); }
+/* opts: fromLink (opened from a #s= link — no toast), path (walk there, from the link),
+   quiet (no toast at all, for boot's fallback chain). Returns whether the study opened; a
+   failure leaves whatever was open untouched. */
+async function openStudy(id,opts){
+  opts=opts||{};
+  let rec;
+  try{ rec=await api("/studies/"+id); if(!rec||!rec.tree) throw new Error("stored tree is unreadable"); }
+  catch(e){ if(!opts.quiet) toast("Could not open: "+e.message); return false; }
+  capture();                                         // the study being left saves under its own id
+  const t=rec.tree;
+  try{ hydrate({tree:t,start:rec.start_fen,path:t.path||[],landing:t.landing||[],flipped:!!t.flipped}); }
+  catch(e){ if(!opts.quiet) toast("Could not open: stored tree is unreadable"); return false; }
+  studyId=rec.id; studyOwned=rec.owned!==false;      // a backend that predates `owned` = single-owner library
+  dirty=false;
+  $("studyName").value=rec.name;
+  rememberLast(rec.id);
+  sel=null;
+  renderEngine();          // the study may have arrived flipped; the bar follows the board
+  if(opts.path){ if(!walkTo(opts.path)) toast("Link points at a move that is not in this study"); }
+  else goToStart();
+  renderStudyMeta(); refreshStudies(); renderLanding();
+  if(!studyOwned) toast("“"+rec.name+"” is read-only — Clone it to keep your own copy");
+  else if(!opts.fromLink&&!opts.quiet) toast("Opened “"+rec.name+"”");
+  return true;
+}
+/* The one way a study comes into being: ask for a name, build the board, POST it, and make it
+   the open, owned study. build() replaces root (New study / Load FEN / Load PGN / a stash) or
+   leaves it alone (Clone). studyId is null from the moment the board is replaced until the POST
+   answers, so nothing can autosave the new board over the study that was open; if the user
+   cancels nothing changes at all, and if the POST fails the previous study comes back. */
+async function createStudy(o){
+  const name=await askDialog({title:o.title,text:o.text||"",value:o.value!==undefined?o.value:"Untitled Study",
+    ok:o.ok||"Create",cancel:o.cancel});
+  if(name===null) return false;
+  const snap={json:serialize(),id:studyId,owned:studyOwned,name:$("studyName").value};
+  capture();
+  detachStudy();
+  const restore=()=>{ hydrate(JSON.parse(snap.json)); studyId=snap.id; studyOwned=snap.owned;
+    $("studyName").value=snap.name; dirty=false; sel=null; renderEngine(); renderAll(); renderLanding(); renderStudyMeta(); };
+  try{ if(o.build) o.build(); }
+  catch(e){ restore(); toast("Couldn’t build that study: "+e.message); return false; }
+  $("studyName").value=name.trim()||"Untitled Study";
+  sel=null; renderEngine(); renderAll(); renderLanding(); renderStudyMeta();
+  let rec;
+  creating=true; renderSaveState();
+  try{ rec=await api("/studies",{method:"POST",body:JSON.stringify(studyPayload())}); }
+  catch(e){ creating=false; restore(); toast("Couldn’t create the study: "+e.message); return false; }
+  creating=false;
+  studyId=rec.id; studyOwned=true; $("studyName").value=rec.name;
+  rememberLast(rec.id);
+  renderStudyMeta(); syncHash(); refreshStudies();
+  if(dirty&&canAutosave()){ clearTimeout(saveT); saveT=setTimeout(capture,AUTOSAVE_MS); }  // edits made while it was posting
+  return true;
+}
+async function cloneStudy(){
+  const base=$("studyName").value.trim()||"Untitled Study";
+  const fresh=studyId==null;
+  if(await createStudy({title:fresh?"Save as a study":"Clone this study",
+      text:fresh?"Keep this board as a new study in your library.":"Saves a copy of this board, as it is now, as a new study of your own.",
+      value:fresh?base:base+" (copy)",ok:fresh?"Save":"Clone"}))
+    toast((fresh?"Saved as “":"Cloned as “")+$("studyName").value+"”");
+}
+/* No study to open from a link or from last time: the most recently updated one, else a new one. */
+async function openFallback(){
+  const rows=await refreshStudies();
+  if(rows===null) return false;                      // the server is not answering; stay in memory
+  for(const r of rows.slice(0,3)) if(await openStudy(r.id,{quiet:true})) return true;
+  if(rows.length) return false;
+  return createStudy({title:"Name your first study",
+    text:"Studies save to your library as you go. Start with an empty board:",ok:"Create",
+    build:()=>newStudy(START)});
+}
+async function openInitialStudy(q){
+  if(q&&q.s&&await openStudy(+q.s,{fromLink:true,path:q.p})) return true;
+  const last=readLast();
+  if(last&&!(q&&+q.s===last)){
+    if(await openStudy(last,{quiet:true})) return true;
+    forgetLast(last);
+  }
+  return openFallback();
 }
 $("setLanding").onclick=()=>{
   root.landing=pathTo(cur).map(n=>n.san);
-  renderLanding(); save();
-  if(studyId&&authed){ saveStudy(false); toast("Landing position saved with the study"); }
-  else toast(authed?"Landing set — press Save to store it with the study":"Landing set for this session only");
+  renderLanding(); changed();
+  toast(canAutosave()?"Landing position saved with the study"
+    :authed&&studyId!=null?"Landing set for this session — Clone to keep it"
+    :"Landing set for this session only");
 };
 $("copyLink").onclick=()=>{
   syncHash();
   const url=location.origin+location.pathname+location.search+currentHash();
-  if(!studyId&&authed) toast("Save the study first so the link can find it");
+  if(!studyId&&authed) toast("Save the board as a study first so the link can find it");
   copy(url,"Link copied");
 };
-$("saveStudy").onclick=()=>saveStudy(false);
-$("saveAsStudy").onclick=()=>saveStudy(true);
+$("studyName").addEventListener("input",()=>{ if(canAutosave()) changed(); });
+$("cloneStudy").onclick=cloneStudy;
+$("signIn").onclick=signIn;
 $("signOut").onclick=signOut;
+
+/* ---------------------------- the dialog ----------------------------
+   One in-app modal for every question the app asks (no prompt/confirm/alert anywhere). A native
+   <dialog> opened with showModal() makes the page behind it inert; Tab is also wrapped by hand
+   so focus can never leave it. Enter submits, Escape or a backdrop click cancels.
+   askDialog → the text typed (string) or null; confirmDialog → true or false. */
+const dlg=$("dlg");
+let dlgSettle=null, dlgHasInput=false;
+function openDialog(o){
+  if(dlgSettle) dlgSettle(null);                     // a newer question replaces an unanswered one
+  return new Promise(resolve=>{
+    dlgHasInput=o.value!==undefined;
+    $("dlgTitle").textContent=o.title||"";
+    const tx=$("dlgText"); tx.textContent=o.text||""; tx.hidden=!o.text;
+    const inp=$("dlgInput"); inp.hidden=!dlgHasInput; inp.value=dlgHasInput?String(o.value):"";
+    const okB=$("dlgOk"), noB=$("dlgCancel");
+    okB.textContent=o.ok||"OK"; okB.className="b "+(o.danger?"danger":"primary");
+    noB.textContent=o.cancel||"Cancel";
+    dlgSettle=v=>{ dlgSettle=null; if(dlg.open) dlg.close(); resolve(v); };
+    dlg.showModal();
+    if(dlgHasInput){ inp.focus(); inp.select(); }
+    else (o.danger?noB:okB).focus();                 // a destructive question defaults to No
+  });
+}
+$("dlgForm").addEventListener("submit",e=>{ e.preventDefault();
+  if(dlgSettle) dlgSettle(dlgHasInput?$("dlgInput").value:true); });
+$("dlgCancel").onclick=()=>{ if(dlgSettle) dlgSettle(null); };
+dlg.addEventListener("cancel",e=>{ e.preventDefault(); if(dlgSettle) dlgSettle(null); });   // Escape
+dlg.addEventListener("close",()=>{ if(dlgSettle) dlgSettle(null); });
+dlg.addEventListener("click",e=>{ if(e.target===dlg&&dlgSettle) dlgSettle(null); });          // backdrop
+dlg.addEventListener("keydown",e=>{
+  if(e.key!=="Tab") return;
+  const f=[...dlg.querySelectorAll("input,button")].filter(x=>!x.hidden&&!x.disabled);
+  if(!f.length) return;
+  const i=f.indexOf(document.activeElement);
+  if(e.shiftKey&&i<=0){ e.preventDefault(); f[f.length-1].focus(); }
+  else if(!e.shiftKey&&i===f.length-1){ e.preventDefault(); f[0].focus(); }
+});
+function askDialog(o){ return openDialog(Object.assign({},o,{value:o.value===undefined?"":o.value})); }
+function confirmDialog(o){ const c=Object.assign({},o); delete c.value; return openDialog(c).then(v=>v===true); }
 
 /* ---------------------------- view API (for views/*.js) ---------------------------- */
 const evalCache=new Map();          // fen -> {depth,cp,mate,turn}  (score from side to move)
@@ -1879,8 +2283,9 @@ function miniBoard(fen,px,opts){
 }
 
 /* the tree pane is drag-resizable via the grip below it; height is shared by every tab */
-function applyTreeHeight(px){
-  document.documentElement.style.setProperty("--treeH",px?px+"px":"min(74vh,720px)");
+function applyTreeHeight(px){                 // null: back to the stylesheet's default
+  if(px) document.documentElement.style.setProperty("--treeH",px+"px");
+  else document.documentElement.style.removeProperty("--treeH");
 }
 /* The grip sets the BOARD column and the rail takes the remainder, which is what keeps the
    drag working in both directions: the rail is a 1fr track, so it can only give width back
@@ -1921,7 +2326,7 @@ function initRailGrip(){
   grip.addEventListener("dblclick",()=>{
     applyBoardWidth(null);
     try{ localStorage.removeItem("repertoire-boardW"); }catch(e){}
-    updateActiveView(); toast("Panel width reset");
+    updateActiveView(); toast("Board width reset");
   });
 }
 function initGrip(){
@@ -2010,12 +2415,15 @@ window.RT={
   get revision(){ return metricsRun; },          // bumps on any tree/nav change
   get evalRevision(){ return evalRev; },         // bumps only when an eval lands
   fromFEN, toFEN, legalMoves, moveSAN, findSAN, applyMove, sqName, parseSq, START,
-  goTo(node){ cur=node; sel=null; renderAll(); },
+  goTo(node){ cur=node; sel=null; renderAll(); },   // navigation: never saves
+  /* the three edits a view can make — each autosaves like its button twin */
   promote(node){ const p=node.parent; if(!p) return;
-    p.children=[node].concat(p.children.filter(c=>c!==node)); renderAll(); },
+    p.children=[node].concat(p.children.filter(c=>c!==node)); renderAll(); changed(); },
   remove(node){ const p=node.parent; if(!p) return;
-    p.children=p.children.filter(c=>c!==node); if(cur===node) cur=p; renderAll(); },
-  setName(node,name){ node.name=String(name||"").replace(/[{}\]]/g,""); renderAll(); },
+    p.children=p.children.filter(c=>c!==node);
+    for(let n=cur;n;n=n.parent) if(n===node){ cur=p; sel=null; break; }
+    renderAll(); changed(); },
+  setName(node,name){ node.name=String(name||"").replace(/[{}\]]/g,""); renderAll(); changed(); },
   toast, registerView
 };
 
@@ -2096,8 +2504,8 @@ const SEED=
   "(4... Nxe4 5. Qxd4 {[%name Queen Comes Out to Play]}) "+
   "5. O-O Nxe4 6. Re1 d5 7. Bxd5 Qxd5 8. Nc3 {[%name The Trap Springs]} Qa5 9. Nxe4 Be6 "+
   "10. Neg5 O-O-O 11. Nxe6 fxe6 12. Rxe6 {[%name Rook Collects the Rent]} *";
-/* Always open on the seed. Whether there is a saved local copy to put over the top of it depends
-   on being signed in, and that is only known once /api/me answers — see the boot() below. */
+/* Always open on the seed, so there is a board on screen while /api/me is answering. Signed in,
+   boot() below replaces it with a study from the server; signed out, the seed is the board. */
 newStudy(START);
 importPGN(SEED,false);
 cur=root;
@@ -2112,6 +2520,11 @@ try{ const w=parseInt(localStorage.getItem("repertoire-boardW"),10); if(w>300) a
 try{ const h=parseInt(localStorage.getItem("repertoire-treeH"),10);
   if(h>120) document.documentElement.style.setProperty("--treeH",h+"px"); }catch(e){}
 try{ const v=localStorage.getItem("repertoire-view"); if(v) activeView=v; }catch(e){}
+/* Position & import starts folded; whether you left it open is remembered. */
+try{ if(localStorage.getItem("repertoire-io-open")==="1") $("ioPanel").open=true; }catch(e){}
+$("ioPanel").addEventListener("toggle",()=>{
+  try{ localStorage.setItem("repertoire-io-open",$("ioPanel").open?"1":"0"); }catch(e){}
+});
 try{ if(localStorage.getItem("repertoire-treearrows")==="0"){ treeArrowsOn=false; $("treeArrows").checked=false; } }catch(e){}
 try{ if(localStorage.getItem("repertoire-enginearrows")==="0"){ engineArrowsOn=false; $("engineArrows").checked=false; } }catch(e){}
 try{ if(localStorage.getItem("repertoire-autoeval")==="0"){ bgOn=false; $("autoEval").checked=false; } }catch(e){}
@@ -2119,15 +2532,29 @@ const restored=loadEvals();
 renderAll();
 renderLanding();
 activateView(activeView);
-/* Auth first, then restore: load() and goToStart() both read localStorage, and signed out they
-   must find nothing. Everything above this point is the in-memory seed, so there is something on
-   screen the whole time rather than a blank board waiting on a round trip. */
+/* Auth first, then decide what is on the board. Signed in: a board stashed on the way to /login
+   is offered as a new study; otherwise the study the link names, else the one this browser had
+   open last, else your most recently updated one, else a new one you name (openInitialStudy).
+   Signed out: the seed, or the stash put back in memory if sign-in was abandoned. */
 (async function boot(){
   await checkAPI();
-  if(authed) load();
-  if(!parseHash()) goToStart(); else renderAll();
+  const stash=takeStash();
+  let q=parseHash(bootHashRaw);
+  if(!q&&stash&&stash.hash) q=parseHash(stash.hash);   // /login?next=/ drops the hash; the stash kept it
+  booted=true;
+  if(authed){
+    if(stash&&stash.board&&await offerStash(stash)){ toast("Kept as “"+$("studyName").value+"”"); return; }
+    await openInitialStudy(q);
+    return;
+  }
+  let restoredBoard=false;
+  if(stash&&stash.board){
+    try{ hydrate(JSON.parse(stash.board)); restoredBoard=true; touched=true;
+      if(stash.name) $("studyName").value=stash.name; renderEngine(); renderAll(); }catch(e){}
+  }
+  if(!restoredBoard){ if(!q) goToStart(); else renderAll(); }
   renderLanding();
-  await applyHash();
+  await applyHash(q);
 })();
 if(restored) toast(restored+" saved evaluations restored");
 setTimeout(bgRefill,600);
