@@ -96,7 +96,7 @@ public class RoleRecheckServiceTests
         Assert.True(context.Principal.IsInRole("guest"));
         Assert.True(context.ShouldRenew);
         Assert.Equal("rt-2", context.Properties.GetTokenValue("refresh_token"));
-        Assert.Equal(idToken, context.Properties.GetTokenValue("id_token"));
+        Assert.Null(context.Properties.GetTokenValue("id_token"));
         Assert.Null(context.Properties.GetTokenValue("access_token"));
         Assert.Contains("refresh_token=rt-1", idp.LastForm);
     }
