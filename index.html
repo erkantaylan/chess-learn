@@ -1695,7 +1695,7 @@ function hydrate(d){
 /* #s=<study id>&p=<san>/<san>/...  — the study and the exact position in it */
 let hashLock=false, hashT, booted=false;
 /* Read once, before anything renders: renderAll() syncs the hash 150ms later, and until boot has
-   opened the linked study that sync would rewrite #s=… into a hash for the in-memory seed. */
+   opened the linked study that sync would rewrite #s=… into a hash for the empty in-memory board. */
 const bootHashRaw=location.hash;
 function currentHash(){
   const parts=[];
@@ -2480,37 +2480,10 @@ function bgPump(){
 }
 
 /* ---------------------------- boot ---------------------------- */
-const SEED=
-  "1. e4 e5 2. Bc4 {[%name Bishop's Opening]} Nf6 {[%name Berlin Defence]} "+
-  "3. d4 {[%name Ponziani Gambit]} exd4 "+
-  "(3... d6 {[%name Declining the Fun]} 4. dxe5 dxe5 5. Qxd8+ Kxd8 {[%name King Takes the Stairs]} "+
-    "6. Nf3 {[%name The Queenless Snooze]}) "+
-  "(3... Nc6 {[%name The Polite Decline]}) "+
-  "(3... Nxe4 {[%name Greed Is Good, For About Five Moves]} 4. dxe5 Nc6 "+
-    "5. Bxf7+ {[%name Bishop Sends the Bill]} Kxf7 6. Qd5+ {[%name Fork, Knife and Regret]}) "+
-  "4. Nf3 {[%name Urusov Gambit]} Nc6 "+
-  "(4... Bb4+ {[%name Check First, Think Later]} 5. c3 dxc3 "+
-    "6. O-O {[%name Two Pawns and a Dream]} "+
-    "(6. bxc3 {[%name The Accountant's Line]} Bc5 7. O-O "+
-      "(7. e5 {[%name Push and Pray]} d5 8. exf6 dxc4 9. Qxd8+ Kxd8 "+
-        "10. fxg7 {[%name The Pawn That Went Shopping]} Re8+ "+
-        "11. Be3 {[%name Blocking With Style]} "+
-        "(11. Kd1 {[%name Manual Castling Enthusiast]} Bd7 12. Bg5+ Kc8 13. Nbd2 Rg8 14. Ne4 Ba3 "+
-          "15. Bh6 Be7 16. Ne5 Be6 17. Bg5 Bxg5 18. Nxg5 {[%name Everybody Trades Everything]}) "+
-        "11... Bxe3 12. fxe3 Rg8 13. Ng5 {[%name Babysitting the g7 Pawn]}) "+
-      "7... O-O 8. e5 d5 9. exd6 {[%name Snack Time]} "+
-      "(9. Bb3 {[%name Bishop Steps Back to Think]})) "+
-    "6... cxb2 7. Bxb2 {[%name Two Bishops, No Pawns, All Vibes]}) "+
-  "(4... Nxe4 5. Qxd4 {[%name Queen Comes Out to Play]}) "+
-  "5. O-O Nxe4 6. Re1 d5 7. Bxd5 Qxd5 8. Nc3 {[%name The Trap Springs]} Qa5 9. Nxe4 Be6 "+
-  "10. Neg5 O-O-O 11. Nxe6 fxe6 12. Rxe6 {[%name Rook Collects the Rent]} *";
-/* Always open on the seed, so there is a board on screen while /api/me is answering. Signed in,
-   boot() below replaces it with a study from the server; signed out, the seed is the board. */
+/* Open on an empty board, so there is a board on screen while /api/me is answering. Signed in,
+   boot() below replaces it with a study from the server; signed out, this empty board is yours —
+   nothing on it until you play a move, so a board kept at sign-in holds only your own moves. */
 newStudy(START);
-importPGN(SEED,false);
-cur=root;
-while(cur.children.length) cur=cur.children[0];   // end of the main line
-$("studyName").value="Urusov Gambit";
 buildTabs();
 initGrip(); initRailGrip();
 /* repertoire-railW, the key this replaced, held a rail width against a 1240px page; it means
@@ -2535,7 +2508,7 @@ activateView(activeView);
 /* Auth first, then decide what is on the board. Signed in: a board stashed on the way to /login
    is offered as a new study; otherwise the study the link names, else the one this browser had
    open last, else your most recently updated one, else a new one you name (openInitialStudy).
-   Signed out: the seed, or the stash put back in memory if sign-in was abandoned. */
+   Signed out: the empty board, or the stash put back in memory if sign-in was abandoned. */
 (async function boot(){
   await checkAPI();
   const stash=takeStash();
