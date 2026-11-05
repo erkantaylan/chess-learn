@@ -159,24 +159,34 @@ button.b.sm{padding:1px 8px;font-size:11.5px}
 .evalbar.off{opacity:0;visibility:hidden}
 .evalbar .mid{position:absolute;left:0;right:0;top:50%;height:1px;background:var(--brass);opacity:.7}
 
-.engine{padding:11px 14px 13px;display:flex;flex-direction:column;gap:9px}
-.engine .top-row{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
-.escore{font-family:"IBM Plex Mono",monospace;font-size:22px;font-weight:600;
-  font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+/* The Stockfish card is one fixed shape whatever the engine is doing: a score row and exactly
+   SF_MULTIPV line slots, every one a fixed single-line height (renderEngine pads the list with
+   empty slots). Stepping through moves empties the list and refills it a line at a time, and
+   a position with fewer legal moves than slots never fills it — neither may move the tree
+   below. The notes (engine off, loading, failed, game over) are laid over that same body
+   rather than added to it, and the score row and slots underneath go invisible but keep their
+   space, so switching the engine on or off does not move anything either. */
+.engine{position:relative;padding:11px 14px 13px;display:flex;flex-direction:column;gap:9px}
+.engine .top-row{display:flex;align-items:baseline;gap:10px;height:28px;white-space:nowrap}
+.engine.quiet .top-row,.engine.quiet .pvlist{visibility:hidden}
+.escore{font-family:"IBM Plex Mono",monospace;font-size:22px;line-height:28px;font-weight:600;
+  font-variant-numeric:tabular-nums;letter-spacing:-.01em;flex:none}
 .escore.plus{color:var(--ink)} .escore.minus{color:var(--claret)}
 .emeta{font-family:"IBM Plex Mono",monospace;font-size:11.5px;color:var(--ink-3);margin-left:auto;
-  font-variant-numeric:tabular-nums}
+  font-variant-numeric:tabular-nums;min-width:0;overflow:hidden;text-overflow:ellipsis}
 .pvlist{display:flex;flex-direction:column;gap:2px}
-.pv-row{display:flex;gap:9px;align-items:baseline;padding:4px 6px;cursor:pointer;
-  font-family:"IBM Plex Mono",monospace;font-size:12.5px}
+.pv-row{display:flex;gap:9px;align-items:baseline;height:26px;padding:4px 6px;cursor:pointer;
+  font-family:"IBM Plex Mono",monospace;font-size:12.5px;line-height:18px;white-space:nowrap;overflow:hidden}
 .pv-row:hover{background:var(--parchment-2)}
-.pv-row .sc{font-weight:600;min-width:52px;font-variant-numeric:tabular-nums}
-.pv-row .mvs{color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.pv-row .add{margin-left:auto;font-family:"IBM Plex Sans",sans-serif;font-size:10.5px;
+.pv-row.empty{cursor:default;pointer-events:none}
+.pv-row .sc{font-weight:600;min-width:52px;font-variant-numeric:tabular-nums;flex:none}
+.pv-row .mvs{color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.pv-row .add{margin-left:auto;font-family:"IBM Plex Sans",sans-serif;font-size:10.5px;flex:none;
   text-transform:uppercase;letter-spacing:.06em;color:var(--brass);opacity:0;white-space:nowrap}
 .pv-row:hover .add{opacity:1}
-.enote{font-size:12.5px;color:var(--ink-3);margin:0}
-.pvlist:empty,.enote:empty{display:none}
+.enote{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  padding:8px 22px;text-align:center;overflow:hidden;font-size:12.5px;color:var(--ink-3);margin:0}
+.enote:empty,.enote[hidden]{display:none}
 .enote code{background:var(--parchment-2);padding:1px 5px;font-family:"IBM Plex Mono",monospace;font-size:11.5px}
 .switch{display:flex;align-items:center;gap:7px;cursor:pointer;font-size:12px;
   text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3);font-weight:600}
@@ -487,11 +497,12 @@ dialog.dlg .row{display:flex;gap:6px;justify-content:flex-end;margin-top:14px}
             title="Quietly score every position in the tree at depth 12 in the background, so the arrows stay graded without pressing Scan">
             <input type="checkbox" id="autoEval" checked><span>auto</span></label>
         </div>
-        <div class="engine">
+        <div class="engine quiet">
           <div class="top-row" id="etop"><span class="escore" id="escore">—</span>
             <span class="emeta" id="emeta"></span></div>
+          <div class="pvlist" id="pvlist"><div class="pv-row empty" aria-hidden="true"></div><div class="pv-row empty" aria-hidden="true"></div><div class="pv-row empty" aria-hidden="true"></div></div>
           <p class="enote" id="eoff">Switch Stockfish on for an evaluation and its best lines.</p>
-          <div class="pvlist" id="pvlist"></div>
+          <p class="enote" id="eend"></p>
           <p class="enote" id="enote"></p>
         </div>
       </div>
@@ -1580,12 +1591,28 @@ let sf=null, sfUp=false, sfOn=false, sfSearching=false, sfPending=null, sfRunnin
 let sfPV={}, sfDepth=0, sfNps=0;
 
 function sfSend(cmd){ if(sf) sf.postMessage(cmd); }
-function engineNote(html){ const n=$("enote"); n.textContent=""; if(html) n.innerHTML=html; renderEngineIdle(); }
-/* Engine off: no score row, just a line saying how to get one — unless a note already says
-   why the engine is not running (file://, failed to load), which is the better hint. */
+/* One wrapping span, because the note is a flex box (to centre it on the card) and each bare
+   text run and <code> in it would otherwise become a column of its own. */
+function engineNote(html){ const n=$("enote"); n.textContent=""; if(html) n.innerHTML="<span>"+html+"</span>"; renderEngineIdle(); }
+/* At most one note is laid over the card, and while one is, the score row and line slots
+   under it are hidden (not removed, so the card keeps its size). A note from engineNote()
+   (loading, file://, failed to load) wins, since it says why there is no analysis; then, engine
+   off, the line saying how to get one; then, engine on in a finished game, why it is not
+   thinking — there is nothing to search, so "thinking" would never end. */
 function renderEngineIdle(){
-  $("etop").hidden=!sfOn;
-  $("eoff").hidden=sfOn||!!$("enote").textContent;
+  const note=!!$("enote").textContent;
+  let end="";
+  if(sfOn&&!note&&!sfPV[1]){ const s=stateOf(cur); if(!legalMoves(s).length) end=outcome(s)+". Nothing to analyse."; }
+  $("eend").textContent=end;
+  $("eoff").hidden=sfOn||note;
+  $("etop").parentNode.classList.toggle("quiet",!sfOn||note||!!end);
+}
+/* Keep SF_MULTIPV slots in the list at all times, filled or not; see the .engine CSS. */
+function padPVSlots(list){
+  while(list.children.length<SF_MULTIPV){
+    const row=document.createElement("div"); row.className="pv-row empty";
+    row.setAttribute("aria-hidden","true"); list.appendChild(row);
+  }
 }
 function setEngineState(txt){ $("engineState").textContent=txt; }
 
@@ -1698,7 +1725,7 @@ function renderEngine(){
     $("escore").className="escore";
     $("emeta").textContent=sfOn&&sfUp?"thinking":"";
     bar.classList.add("off"); bar.classList.toggle("flip",flipped); fill.style.height="50%";
-    renderEngineIdle(); renderEngineArrows();
+    padPVSlots(list); renderEngineIdle(); renderEngineArrows();
     return;
   }
   const sc=whiteScore(best,s.turn);
@@ -1721,6 +1748,7 @@ function renderEngine(){
     row.onclick=()=>addPVToTree(e.pv);
     list.appendChild(row);
   }
+  padPVSlots(list);
   renderEngineArrows();
 }
 /* Engine arrows are graded, not branded: the arrow takes the colour of the side the line
