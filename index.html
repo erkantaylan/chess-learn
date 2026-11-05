@@ -468,6 +468,7 @@ dialog.dlg .row{display:flex;gap:6px;justify-content:flex-end;margin-top:14px}
           <label title="Blue — pick it, or hold Alt while you right-drag for one blue stroke"><input type="radio" name="shapeColor" value="B" aria-label="Blue (Alt)"><span class="chip" style="--c:var(--shape-B)"></span></label>
           <label title="Yellow — pick it, or hold Ctrl while you right-drag for one yellow stroke"><input type="radio" name="shapeColor" value="Y" aria-label="Yellow (Ctrl)"><span class="chip" style="--c:var(--shape-Y)"></span></label>
         </fieldset>
+        <button class="b ic" id="clearShapes" title="Clear the arrows and circles you drew on this position (x)" aria-label="Clear drawings here" disabled><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9.6 2.2a1.5 1.5 0 0 1 2.1 0l2.1 2.1a1.5 1.5 0 0 1 0 2.1L8.2 12H14v1.5H5.8L2.2 9.9a1.5 1.5 0 0 1 0-2.1zM6.1 6.3 3.3 9.1l3 2.9h.3l2.3-2.3z"/></svg><span class="kbd">x</span></button>
         <button class="b" id="flip" title="Flip the board (f)">Flip<span class="kbd">f</span></button>
         <label class="switch sm" title="Show the moves you have prepared from this position. Once Stockfish has scored them, the outline runs green (best) to red (worst).">
           <input type="checkbox" id="treeArrows" checked><span>Tree<span class="lg"> arrows</span></span></label>
@@ -1230,6 +1231,8 @@ function renderShapes(){
   }
   if(pendingArrow&&pendingArrow.to&&pendingArrow.to!==pendingArrow.from)
     drawArrow(layer,pendingArrow.from,pendingArrow.to,SHAPE_COLORS[pendingArrow.color],0.5,ARROW_W.hand);
+  /* Every change to cur's drawings, and every move to another position, comes through here. */
+  const clr=$("clearShapes"); if(clr) clr.disabled=!(cur.shapes&&cur.shapes.length);
 }
 function toggleShape(sh){
   cur.shapes=cur.shapes||[];
@@ -1240,6 +1243,16 @@ function toggleShape(sh){
     else cur.shapes[hit].color=sh.color;
   } else cur.shapes.push(sh);
   renderShapes(); changed();
+}
+/* Wipes only what you drew by hand on one position — never the tree or engine arrows, which are
+   not drawings — and saves like any other edit. Returns false when there was nothing to clear,
+   so a stray key press does not trigger a save. */
+function clearShapes(node){
+  if(!node||!(node.shapes&&node.shapes.length)) return false;
+  node.shapes=[];
+  if(node===cur) renderShapes();
+  changed();
+  return true;
 }
 let pendingArrow=null;
 let previewNode=null;          // optional single-move override (views may use RT.previewMove)
@@ -1425,8 +1438,10 @@ document.addEventListener("keydown",e=>{
   const map={ArrowLeft:"prev",ArrowRight:"next",ArrowUp:"first",ArrowDown:"last",Home:"first",End:"last"};
   if(map[e.key]){ e.preventDefault(); go[map[e.key]](); sel=null; renderAll(); }
   else if(e.key==="f"){ setFlipped(!flipped); }
+  else if(e.key==="x"){ if(clearShapes(cur)) toast("Drawings cleared"); }
 });
 $("flip").onclick=()=>setFlipped(!flipped);
+$("clearShapes").onclick=()=>{ if(clearShapes(cur)) toast("Drawings cleared"); };
 /* One door for the flip: the board, the evaluation bar and any view drawing mini boards all
    read `flipped`, so they all have to be told, and the study has to be told too — the
    orientation is part of the study, so a flip is an edit and autosaves like one. */
@@ -2419,6 +2434,7 @@ function moveMenu(e,node){
     !isRoot&&{label:node.name?"Rename line…":"Name line…",run:()=>nameLine(node)},
     !isRoot&&node.name&&{label:"Remove name",run:()=>setLineName(node,"")},
     {label:node.comment?"Edit note…":"Note…",run:()=>editNote(node)},
+    {label:"Clear drawings",run:()=>clearShapes(node),disabled:!(node.shapes&&node.shapes.length)},
     "-",
     !isRoot&&{label:"Make main line",run:()=>promoteLine(node),disabled:onMainLine(node)},
     !isRoot&&{label:"Delete branch…",run:()=>deleteBranch(node),danger:true},
