@@ -47,7 +47,7 @@ button{width:100%;padding:9px 12px;border:1px solid var(--brass);border-radius:2
   font-weight:600;cursor:pointer}
 button:hover{filter:brightness(1.07)}
 button:disabled{opacity:.6;cursor:default}
-.err{margin:0 0 14px;padding:7px 9px;border-left:2px solid var(--claret);
+.err{margin:0 0 14px;padding:7px 9px;border:1px solid var(--claret);border-radius:2px;
   background:var(--parchment-2);color:var(--claret);font-size:12.5px}
 .err[hidden]{display:none}
 .back{display:block;margin:16px 0 0;font-size:12px;color:var(--ink-3);text-decoration:none}
@@ -82,11 +82,13 @@ const form=document.getElementById("form"),
 
 function fail(msg){ err.textContent=msg; err.hidden=false; submit.disabled=false; submit.textContent="Sign in"; }
 
-/* Where to go after signing in. Only ever a path on this origin — an absolute URL here would
-   turn the login page into an open redirect for anyone who can get you to click a link. */
+/* Where to go after signing in — the board's Sign in button sends ?next=/. Only ever a path on
+   this origin — an absolute URL here would turn the login page into an open redirect for anyone
+   who can get you to click a link. "/\host" is refused too: browsers read a backslash as a slash,
+   so it is "//host" in disguise. Same rule as LocalPathOrRoot on the server. */
 function destination(){
   const next=new URLSearchParams(location.search).get("next");
-  return (next&&next.startsWith("/")&&!next.startsWith("//")) ? next : "/";
+  return (next&&next.startsWith("/")&&!next.startsWith("//")&&!next.startsWith("/\\")) ? next : "/";
 }
 
 form.addEventListener("submit",async e=>{

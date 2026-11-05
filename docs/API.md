@@ -10,7 +10,7 @@ Two backends implement this contract:
 
 | | base URL | store | accounts |
 |---|---|---|---|
-| .NET (`src/`) | Aspire assigns the port; `http://localhost:5080` under compose | PostgreSQL, `tree` in a `jsonb` column | yes — the whole API needs a session |
+| .NET (`src/`) | Aspire assigns the port; `http://localhost:5080` under compose | PostgreSQL, `tree` in a `jsonb` column | yes — the whole API needs a session, and each account has its own library |
 | Python (`legacy/python/`, retired) | `http://localhost:8000` | SQLite, `tree` in a TEXT column | none — wide open |
 
 Timestamps are ISO-8601 UTC with a `Z` suffix, e.g. `2026-08-19T16:59:53Z`.
@@ -25,7 +25,8 @@ Timestamps are ISO-8601 UTC with a `Z` suffix, e.g. `2026-08-19T16:59:53Z`.
   "tree": { "san": "", "fen": "...", "children": [] },
   "pgn": "1. e4 e5 *",
   "created_at": "2026-08-19T16:59:53Z",
-  "updated_at": "2026-08-19T16:59:59Z"
+  "updated_at": "2026-08-19T16:59:59Z",
+  "owned": true
 }
 ```
 
@@ -51,15 +52,35 @@ Timestamps are ISO-8601 UTC with a `Z` suffix, e.g. `2026-08-19T16:59:53Z`.
   serializer depth limit to 512 (~255 plies). The stock limit of 64 rejects a
   study around move 32.
 - `pgn` — string, may be `""`.
+- `owned` — boolean, response only: whether the caller owns this study and so
+  may `PUT`/`DELETE` it. `false` for a study opened by id from someone else's
+  link. The owner's identity itself is never sent. (.NET backend only; the
+  Python backend has no accounts and does not send it.)
 
 ---
 
 ## Authentication
 
-There is exactly one account — no registration, no users table, no `user_id` on
-studies: the whole database belongs to it. Credentials come from configuration
-(`Auth__Username` / `Auth__Password` as env vars, or user-secrets locally), and
-the app refuses to boot outside Development if they are unset.
+Two sign-in modes, picked by configuration; there is no registration and no
+users table in either.
+
+- **Password login** (default): exactly one account, `Auth__Username` /
+  `Auth__Password` as env vars (or user-secrets locally). The app refuses to
+  boot outside Development if they are unset.
+- **Central login** (`Auth__Oidc__Authority` set): sign-in goes to the OpenID
+  Connect provider, and `POST /api/login` does not exist (404).
+
+Every study has an owner, and each account sees its own library:
+
+| mode | owner id |
+|---|---|
+| central login | the provider's `sub` claim (not the username, which can change) |
+| password login | the configured `Auth__Username` |
+
+You list, update and delete only your own studies. Any session allowed to use
+`/api/studies` at all can **read** any study by id — a study link is shareable,
+read-only. Saving a copy of someone else's study is an ordinary `POST` of the
+tree under a new name; there is no clone endpoint.
 
 Everything under `/api/studies` requires a session. `/api/health`, `/api/me`,
 `/api/login` and `/api/logout` are anonymous, as is the frontend itself — the
@@ -85,6 +106,21 @@ are compared in fixed time.
 
 Clears the cookie. Responds `{"authed": false, "user": null, "roles": [], "can_save": false}`.
 
+Signs you out of **this app only**, under the central login too — the
+provider's own session is left alone.
+
+### `GET /login?next=…` and `GET /logout` (page navigation, not `/api`)
+
+`/login` is the sign-in page under the password login, and a redirect to the
+provider under the central login. Either way you land on `next` afterwards
+(already signed in: straight away). `next` must be a path on this origin —
+anything else (`//host`, `/\host`, an absolute URL) is replaced by `/`. The
+board's Sign in button links to `/login?next=/`.
+
+`/logout` clears the cookie and redirects to `/`. Like `POST /api/logout` it
+signs out of this app only, in both modes: it does not visit the provider's
+end-session endpoint.
+
 ### `GET /api/me`
 
 ```json
@@ -106,7 +142,9 @@ empty body — not a redirect to a login page. A session that lapses mid-use
 surfaces the same way, and the frontend folds it back into the signed-out state.
 
 Under the central login, a session without the `user` role (a guest) gets
-**403** there instead — signed in, but no access to the library.
+**403** there instead — signed in, but no access to the library. That is the
+only 403 `/api/studies` gives: a write to a study that is not yours is a
+**404** (below), so a 403 always means "this account has no access".
 
 ---
 
@@ -119,10 +157,13 @@ curl -s http://localhost:8000/api/health
 {"ok": true, "studies": 1}
 ```
 
+Anonymous. `studies` counts every study on the server, not the caller's.
+
 ## `GET /api/studies`
 
-Listing — **no `tree` and no `pgn`** in the payload, so it stays cheap. Sorted
-by `updated_at` descending (most recently saved first).
+Listing of **your own** studies only — **no `tree`, no `pgn` and no `owned`**
+(every row is yours) in the payload, so it stays cheap. Sorted by `updated_at`
+descending (most recently saved first).
 
 ```
 curl -s http://localhost:8000/api/studies
@@ -147,8 +188,8 @@ Creates a study. Request body:
 ```
 
 `name` is required. `start_fen` (default `""`), `tree` (default `null`) and
-`pgn` (default `""`) are optional. Responds **201** with the full record
-including the new `id`.
+`pgn` (default `""`) are optional. The study is owned by the caller. Responds
+**201** with the full record including the new `id` (and `"owned": true`).
 
 ```
 curl -s -X POST http://localhost:8000/api/studies \
@@ -160,7 +201,9 @@ Missing or empty `name` -> **422** with FastAPI's validation detail body.
 
 ## `GET /api/studies/{id}`
 
-Full record. **404** `{"detail": "study 999 not found"}` if it does not exist.
+Full record of **any** study, yours or not — this is what a shared link opens.
+`owned` says which. **404** `{"detail": "study 999 not found"}` if it does not
+exist.
 
 ```
 curl -s http://localhost:8000/api/studies/1
@@ -190,9 +233,15 @@ JSON `null` by sending `{"tree": null}` — that is indistinguishable from
 
 **404** for an unknown id, **422** for e.g. `{"name": ""}`.
 
+**404** `{"detail": "study 7 is not one of your studies"}` when the study
+exists but is someone else's — deliberately not 403 (see
+[Unauthenticated requests](#unauthenticated-requests)). Nothing is changed.
+
 ## `DELETE /api/studies/{id}`
 
-**204** with an empty body on success, **404** if the id is unknown.
+**204** with an empty body on success, **404** if the id is unknown, and
+**404** `{"detail": "study 7 is not one of your studies"}` if it is someone
+else's (the study is kept).
 
 ```
 curl -s -o /dev/null -w '%{http_code}\n' -X DELETE http://localhost:8000/api/studies/2
@@ -213,7 +262,10 @@ The intended flow, replacing (or backing up) the single `localStorage`
 2. **Open a study.**
    `GET /api/studies/{id}` -> feed `start_fen`, `tree` (and `path`, if you keep
    it inside `tree`) straight into the existing loader. The `tree` you get back
-   is byte-for-byte the JSON you sent.
+   is semantically the JSON you sent (jsonb, see above).
+   If `owned` is `false` it is someone else's: show it read-only, and save
+   changes as a copy (step 3, under a new name) rather than a `PUT`, which
+   would 404.
 
 3. **First save of a new study.**
    `POST /api/studies` with `{name, start_fen, tree, pgn}`. Store the returned

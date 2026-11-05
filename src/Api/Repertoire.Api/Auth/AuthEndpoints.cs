@@ -45,8 +45,8 @@ public static class AuthEndpoints
             MapPasswordLogin(routes);
         }
 
-        // Local only, under OIDC too: the in-app button keeps the board on screen, so it cannot
-        // navigate away to the IdP. GET /logout is the full sign-out.
+        // This app only, under OIDC too — the IdP session is left alone, as GET /logout leaves it.
+        // The in-app button uses this one because it keeps the board on screen.
         routes.MapPost("/logout", async (HttpContext http) =>
               {
                   await http.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);

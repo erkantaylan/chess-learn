@@ -1,12 +1,20 @@
 namespace Repertoire.Api.Studies;
 
 /// <summary>
-/// One saved opening study. Mirrors the table the Python/SQLite backend used, so the JSON
-/// contract in docs/API.md is unchanged.
+/// One saved opening study. Mirrors the table the Python/SQLite backend used, plus an owner, so
+/// the JSON contract in docs/API.md is unchanged apart from <c>owned</c>.
 /// </summary>
 public class Study
 {
     public int Id { get; set; }
+
+    /// <summary>
+    /// Whose library this study is in — the IdP's <c>sub</c> under the central login, the
+    /// configured username under the password login (see <c>StudyOwner</c>). Only the owner lists,
+    /// renames, saves over or deletes it; anyone who may read studies at all can open it by id.
+    /// Never sent on the wire: the client gets <c>owned</c>, not someone else's subject id.
+    /// </summary>
+    public string Owner { get; set; } = string.Empty;
 
     public string Name { get; set; } = string.Empty;
 
