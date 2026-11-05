@@ -7,18 +7,33 @@ using Repertoire.Api.Auth;
 namespace Repertoire.Api.StaticApp;
 
 /// <summary>
-/// Sign-in lives on its own page. The board itself never mentions it: anonymous visitors get a
-/// fully working, entirely in-memory app with no login prompt, no hint and nothing to dismiss.
-/// You go to /login because you know it is there.
+/// Sign-in lives on its own page, and the board links to it: signed out, it shows a Sign in
+/// button that goes to /login?next=/. Nothing more than that — anonymous visitors still get a
+/// fully working, entirely in-memory app with no prompt to dismiss; the button is there for
+/// whoever wants their studies kept, now that each account has a library of its own.
 ///
-/// With the central IdP configured, /login is not a page but a redirect to the IdP, and /logout
-/// signs out there too.
+/// With the central IdP configured, /login is not a page but a redirect to the IdP. Either way
+/// ?next= (a path on this origin) is where you land afterwards, and /logout signs you out of this
+/// app only — never out of the IdP, where you may be signed in to other apps too.
 /// </summary>
 public static class LoginPageExtensions
 {
     public static WebApplication MapLoginPage(this WebApplication app)
     {
         bool usesOidc = app.Services.GetRequiredService<IOptions<AuthOptions>>().Value.UsesOidc;
+
+        // Signing out from a link rather than the in-app button: land back on the board, signed
+        // out. The cookie only, in both modes. Under the central login this used to go on to the
+        // IdP's end-session endpoint as well, which signed you out of every app on it; leaving
+        // this app is all a Sign out button here should do. The IdP session stays, so the next
+        // /login is one click with no password.
+        app.MapGet("/logout", async (HttpContext http) =>
+           {
+               await http.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+               return Results.Redirect("/");
+           })
+           .AllowAnonymous()
+           .ExcludeFromDescription();
 
         if (usesOidc)
         {
@@ -34,14 +49,6 @@ public static class LoginPageExtensions
                .AllowAnonymous()
                .ExcludeFromDescription();
 
-            // Cookie first, then the IdP's end-session endpoint (id_token_hint from the cookie's
-            // saved id_token), which returns via /signout-callback-oidc to the board.
-            app.MapGet("/logout", () => Results.SignOut(
-                   new AuthenticationProperties { RedirectUri = "/" },
-                   [CookieAuthenticationDefaults.AuthenticationScheme, OpenIdConnectDefaults.AuthenticationScheme]))
-               .AllowAnonymous()
-               .ExcludeFromDescription();
-
             return app;
         }
 
@@ -53,15 +60,6 @@ public static class LoginPageExtensions
                return File.Exists(file)
                    ? Results.File(file, "text/html; charset=utf-8")
                    : Results.NotFound();
-           })
-           .AllowAnonymous()
-           .ExcludeFromDescription();
-
-        // Signing out from the page rather than the app: land back on the board, signed out.
-        app.MapGet("/logout", async (HttpContext http) =>
-           {
-               await http.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
-               return Results.Redirect("/");
            })
            .AllowAnonymous()
            .ExcludeFromDescription();

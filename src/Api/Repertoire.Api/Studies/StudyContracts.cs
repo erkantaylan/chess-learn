@@ -3,7 +3,11 @@ using System.Text.Json.Serialization;
 
 namespace Repertoire.Api.Studies;
 
-/// <summary>Full study record. Property names serialise to snake_case (see RepertoireProgram).</summary>
+/// <summary>
+/// Full study record. Property names serialise to snake_case (see RepertoireProgram).
+/// Owned: whether the caller may save over it. A study opened from someone else's link is
+/// readable but not theirs — the frontend shows it read-only, and saving means a copy.
+/// </summary>
 public sealed record StudyRecord(
     int Id,
     string Name,
@@ -11,7 +15,8 @@ public sealed record StudyRecord(
     JsonElement Tree,
     string Pgn,
     string CreatedAt,
-    string UpdatedAt);
+    string UpdatedAt,
+    bool Owned);
 
 /// <summary>Listing row: no tree and no pgn, so the list stays cheap.</summary>
 public sealed record StudyListRow(
@@ -78,14 +83,20 @@ internal static class StudyMapping
         return new DateTime(now.Ticks - (now.Ticks % TimeSpan.TicksPerSecond), DateTimeKind.Utc);
     }
 
-    public static StudyRecord ToRecord(this Study study) =>
+    /// <param name="caller">The caller's owner id (<c>StudyOwner</c>), for <c>owned</c>.</param>
+    public static StudyRecord ToRecord(this Study study, string caller) =>
         new(study.Id,
             study.Name,
             study.StartFen,
             ParseTree(study.Tree),
             study.Pgn,
             study.CreatedAt.ToIso(),
-            study.UpdatedAt.ToIso());
+            study.UpdatedAt.ToIso(),
+            study.IsOwnedBy(caller));
+
+    /// <summary>Ordinal: an IdP subject id is an opaque string, not something to case-fold.</summary>
+    public static bool IsOwnedBy(this Study study, string caller) =>
+        string.Equals(study.Owner, caller, StringComparison.Ordinal);
 
     /// <summary>
     /// Re-parses the stored jsonb text so the tree goes out as JSON rather than a JSON-escaped

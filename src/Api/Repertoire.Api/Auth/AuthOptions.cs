@@ -1,14 +1,14 @@
 namespace Repertoire.Api.Auth;
 
 /// <summary>
-/// The one and only user. There is no registration, no users table and no user_id on studies —
-/// the whole database belongs to this account. Bound from the "Auth" configuration section, so
+/// The one and only local user. There is no registration and no users table; studies are owned by
+/// this username (<see cref="StudyOwner"/>). Bound from the "Auth" configuration section, so
 /// values arrive as Auth__Username / Auth__Password env vars (or user-secrets locally).
 ///
 /// Or, when <see cref="OidcOptions.Authority"/> is set, sign-in goes to the central identity
-/// provider instead and the password pair is ignored entirely. Still one library: anyone the IdP
-/// lets in with the <see cref="OidcOptions.RequiredRole"/> role shares it, and a
-/// <see cref="OidcOptions.GuestRole"/> gets the in-memory board, signed in.
+/// provider instead and the password pair is ignored entirely. Each IdP account with the
+/// <see cref="OidcOptions.RequiredRole"/> role has a library of its own, keyed by its <c>sub</c>;
+/// a <see cref="OidcOptions.GuestRole"/> gets the in-memory board, signed in.
 /// </summary>
 public sealed class AuthOptions
 {

@@ -50,8 +50,8 @@ public static class CentralLoginExtensions
             options.TokenValidationParameters.NameClaimType = "preferred_username";
             options.TokenValidationParameters.RoleClaimType = "roles";
 
-            // The id_token for the id_token_hint on RP-initiated logout, the refresh token for the
-            // role re-check; see OnTicketReceived for why those are the only tokens kept.
+            // The refresh token for the role re-check; see OnTicketReceived for why it is the only
+            // token kept.
             options.SaveTokens = true;
 
             options.Events.OnTokenValidated = context =>
@@ -68,9 +68,10 @@ public static class CentralLoginExtensions
 
             options.Events.OnTicketReceived = context =>
             {
-                // The access token is never used (roles come from the id_token), and it would push
-                // the cookie into yet another chunk. Keep id_token + refresh token, and stamp the
-                // sign-in as the first role check.
+                // Only the refresh token is ever read again. The access token never is, and the
+                // id_token stopped being needed once /logout became app-only (it was the IdP's
+                // logout hint); each would push the cookie into yet another chunk. Keep the
+                // refresh token alone, and stamp the sign-in as the first role check.
                 if (context.Properties is not null)
                 {
                     RoleRecheckService.PrepareSignInProperties(context.Properties);

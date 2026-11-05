@@ -68,9 +68,7 @@ public sealed class RoleRecheckService(
         {
             case RecheckVerdict.Renew:
                 ReplaceRoles(identity, result.Roles!);
-                context.Properties.StoreTokens(Tokens(
-                    result.IdToken ?? context.Properties.GetTokenValue(OpenIdConnectParameterNames.IdToken),
-                    result.RefreshToken ?? refreshToken));
+                context.Properties.StoreTokens(Tokens(result.RefreshToken ?? refreshToken));
                 StampCheckedAt(context.Properties, now);
                 context.ShouldRenew = true;
                 return;
@@ -94,12 +92,14 @@ public sealed class RoleRecheckService(
         }
     }
 
-    /// <summary>At sign-in: the cookie keeps the id_token (logout hint) and refresh token only.</summary>
+    /// <summary>
+    /// At sign-in: the cookie keeps the refresh token only. StoreTokens replaces the whole set,
+    /// so the id_token and access token the handler saved are dropped here, and a cookie from
+    /// before this change loses its id_token at its next renewal.
+    /// </summary>
     public static void PrepareSignInProperties(AuthenticationProperties properties)
     {
-        properties.StoreTokens(Tokens(
-            properties.GetTokenValue(OpenIdConnectParameterNames.IdToken),
-            properties.GetTokenValue(OpenIdConnectParameterNames.RefreshToken)));
+        properties.StoreTokens(Tokens(properties.GetTokenValue(OpenIdConnectParameterNames.RefreshToken)));
         StampCheckedAt(properties, DateTimeOffset.UtcNow);
     }
 
@@ -154,7 +154,7 @@ public sealed class RoleRecheckService(
             if (!response.IsSuccessStatusCode)
             {
                 logger.LogInformation("Refresh-token grant answered {Status}: {Body}", status, Truncate(body));
-                return new GrantResult(status, null, null, null);
+                return new GrantResult(status, null, null);
             }
 
             using JsonDocument json = JsonDocument.Parse(body);
@@ -163,7 +163,6 @@ public sealed class RoleRecheckService(
             return new GrantResult(
                 status,
                 RoleRecheck.ReadRoles(idToken) ?? RoleRecheck.ReadRoles(accessToken),
-                idToken,
                 StringProperty(json, "refresh_token"));
         }
         catch (Exception e) when (e is HttpRequestException or OperationCanceledException or IOException
@@ -188,11 +187,8 @@ public sealed class RoleRecheckService(
         }
     }
 
-    private static AuthenticationToken[] Tokens(string? idToken, string? refreshToken) =>
-    [
-        .. idToken is null ? [] : new[] { new AuthenticationToken { Name = OpenIdConnectParameterNames.IdToken, Value = idToken } },
-        .. refreshToken is null ? [] : new[] { new AuthenticationToken { Name = OpenIdConnectParameterNames.RefreshToken, Value = refreshToken } },
-    ];
+    private static AuthenticationToken[] Tokens(string? refreshToken) =>
+        refreshToken is null ? [] : [new AuthenticationToken { Name = OpenIdConnectParameterNames.RefreshToken, Value = refreshToken }];
 
     private static DateTimeOffset ReadCheckedAt(AuthenticationProperties properties) =>
         properties.Items.TryGetValue(RoleRecheck.CheckedAtItem, out string? value)
@@ -214,9 +210,9 @@ public sealed class RoleRecheckService(
 
     private sealed record Attempt(Lazy<Task<GrantResult>> Result, DateTimeOffset Started);
 
-    private sealed record GrantResult(int? Status, IReadOnlyList<string>? Roles, string? IdToken, string? RefreshToken)
+    private sealed record GrantResult(int? Status, IReadOnlyList<string>? Roles, string? RefreshToken)
     {
-        public static readonly GrantResult NoAnswer = new(null, null, null, null);
+        public static readonly GrantResult NoAnswer = new(null, null, null);
 
         /// <summary>The IdP said something definite: a 4xx, or a 200 with readable roles.</summary>
         public bool IsAnswer => Status is >= 400 and < 500 || (Status is >= 200 and < 300 && Roles is not null);

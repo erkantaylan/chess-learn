@@ -63,6 +63,12 @@ namespace Repertoire.Api.Migrations
                         .HasColumnType("character varying(200)")
                         .HasColumnName("name");
 
+                    b.Property<string>("Owner")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)")
+                        .HasColumnName("owner");
+
                     b.Property<string>("Pgn")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
@@ -90,8 +96,8 @@ namespace Repertoire.Api.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("UpdatedAt")
-                        .HasDatabaseName("ix_studies_updated_at");
+                    b.HasIndex("Owner", "UpdatedAt", "Id")
+                        .HasDatabaseName("ix_studies_owner_updated_at");
 
                     b.ToTable("studies", (string)null);
                 });
